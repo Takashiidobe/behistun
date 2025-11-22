@@ -52,6 +52,10 @@ pub enum InstructionKind {
     Unlk {
         addr_reg: AddrReg,
     },
+    Btst(BitOp),
+    Bchg(BitOp),
+    Bclr(BitOp),
+    Bset(BitOp),
 }
 
 // <ea>,Dn
@@ -125,6 +129,12 @@ pub enum Shift {
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct UnaryOp {
     pub size: Size,
+    pub mode: AddressingMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub struct BitOp {
+    pub bit_num: u8,
     pub mode: AddressingMode,
 }
 
@@ -282,6 +292,17 @@ impl Decoder {
         })
     }
 
+    fn resolve_bit_op(&self, bit_op: BitOp, start: usize, bytes: &mut Vec<u8>) -> Result<BitOp> {
+        // Read bit number from extension word (low byte)
+        let bit_word = self.memory.read_word(start + 2)?;
+        bytes.extend(bit_word.to_be_bytes());
+        let bit_num = (bit_word & 0xFF) as u8;
+        // Resolve EA, which starts after the bit number word
+        let mode = self.resolve_ea(bit_op.mode, start + 4, Some(Size::Byte))?;
+        bytes.extend(mode.to_bytes());
+        Ok(BitOp { bit_num, mode })
+    }
+
     fn decode_instruction(&self, start: usize) -> Result<Instruction> {
         let opcode = self.memory.read_word(start)?;
         let instr_kind = Self::get_op_kind(opcode)?;
@@ -385,6 +406,22 @@ impl Decoder {
                 }
             }
             InstructionKind::Unlk { addr_reg } => InstructionKind::Unlk { addr_reg },
+            InstructionKind::Btst(bit_op) => {
+                let bit_op = self.resolve_bit_op(bit_op, start, &mut bytes)?;
+                InstructionKind::Btst(bit_op)
+            }
+            InstructionKind::Bchg(bit_op) => {
+                let bit_op = self.resolve_bit_op(bit_op, start, &mut bytes)?;
+                InstructionKind::Bchg(bit_op)
+            }
+            InstructionKind::Bclr(bit_op) => {
+                let bit_op = self.resolve_bit_op(bit_op, start, &mut bytes)?;
+                InstructionKind::Bclr(bit_op)
+            }
+            InstructionKind::Bset(bit_op) => {
+                let bit_op = self.resolve_bit_op(bit_op, start, &mut bytes)?;
+                InstructionKind::Bset(bit_op)
+            }
         };
 
         let instruction = Instruction {
@@ -577,6 +614,22 @@ impl Decoder {
                     },
                     _ => bail!("Unsupported opmode: {:#05b}", opmode),
                 }
+            }
+            0b0000 => {
+                // Static bit operations: BTST, BCHG, BCLR, BSET with immediate bit number
+                // Format: 0000 1000 oo eeeee (oo = operation, eeeeee = EA)
+                if op_nibble == 0b1000 {
+                    let mode = effective_address(ea_bits)?;
+                    let bit_op = BitOp { bit_num: 0, mode };
+                    return match size_bits {
+                        0b00 => Ok(InstructionKind::Btst(bit_op)),
+                        0b01 => Ok(InstructionKind::Bchg(bit_op)),
+                        0b10 => Ok(InstructionKind::Bclr(bit_op)),
+                        0b11 => Ok(InstructionKind::Bset(bit_op)),
+                        _ => unreachable!(),
+                    };
+                }
+                bail!("Unsupported group 0 instruction");
             }
             _ => bail!("Unsupported group: {:#06b}", group),
         }

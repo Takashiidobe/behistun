@@ -6,34 +6,39 @@ A WIP m68k interpreter and disassembler
 
 The following instructions are currently supported by the decoder:
 
-- `Illegal`
-- `Rte`
-- `Rts`
-- `Rtr`
-- `Nop`
-- `TrapV`
-- `Reset`
+- `illegal`
+- `rte`
+- `rts`
+- `rtr`
+- `nop`
+- `trapV`
+- `reset`
 
-- `Jsr`
-- `Jmp`
+- `jsr`
+- `jmp`
 
-- `Add`
-- `Adda`
-- `Addx`
+- `add`
+- `adda`
+- `addx`
 
-- `Tas`
-- `Tst`
+- `tas`
+- `tst`
 
-- `Asd`
-- `Lsd`
-- `Roxd`
-- `Rod`
+- `asd`
+- `lsd`
+- `roxd`
+- `rod`
 
-- `Negx`
-- `Clr`
-- `Neg`
-- `Not`
+- `negx`
+- `clr`
+- `neg`
+- `not`
 
-- `Trap`
-- `Lnk`
-- `Unlk`
+- `trap`
+- `lnk`
+- `unlk`
+
+- `btst`
+- `bchg`
+- `bclr`
+- `bset`

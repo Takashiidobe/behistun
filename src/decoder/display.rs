@@ -1,6 +1,6 @@
 use super::{
-    AddrReg, AddressingMode, DataReg, EffectiveAddress, Immediate, Instruction, InstructionKind,
-    RightOrLeft, Shift, ShiftCount, ShiftEa, ShiftReg, Size, UnaryOp,
+    AddrReg, AddressingMode, BitOp, DataReg, EffectiveAddress, Immediate, Instruction,
+    InstructionKind, RightOrLeft, Shift, ShiftCount, ShiftEa, ShiftReg, Size, UnaryOp,
 };
 use crate::decoder::Add;
 use std::fmt;
@@ -43,6 +43,12 @@ impl fmt::Display for Shift {
 impl fmt::Display for UnaryOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}", self.size, self.mode)
+    }
+}
+
+impl fmt::Display for BitOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "#{}, {}", self.bit_num, self.mode)
     }
 }
 
@@ -95,6 +101,10 @@ impl fmt::Display for InstructionKind {
                 displacement,
             } => write!(f, "link {}, #{}", addr_reg, displacement),
             InstructionKind::Unlk { addr_reg } => write!(f, "unlk {}", addr_reg),
+            InstructionKind::Btst(bit_op) => write!(f, "btst {}", bit_op),
+            InstructionKind::Bchg(bit_op) => write!(f, "bchg {}", bit_op),
+            InstructionKind::Bclr(bit_op) => write!(f, "bclr {}", bit_op),
+            InstructionKind::Bset(bit_op) => write!(f, "bset {}", bit_op),
         }
     }
 }

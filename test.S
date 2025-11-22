@@ -1,8 +1,12 @@
 .globl _start
 _start:
-	trap #10
-	link.w %a6, #-12
-	unlk %a0
+	bchg #3, (%a0)
+	bclr #4, (%a0)
+	btst #7, %d0
+	bset #0, 8(%a1)
+	| trap #10
+	| link.w %a6, #-12
+	| unlk %a0
 	| negx.w %d0 
 	| clr.w %d0 
 	| neg.w %d0 
