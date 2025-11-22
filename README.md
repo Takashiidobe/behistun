@@ -23,3 +23,8 @@ The following instructions are currently supported by the decoder:
 
 - `Tas`
 - `Tst`
+
+- `Asd`
+- `Lsd`
+- `Roxd`
+- `Rod`

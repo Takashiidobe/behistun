@@ -1,13 +1,17 @@
 .globl _start
 _start:
-	adda.w (%a0), %a2
-	adda.l (%a1), %a2
-  add.w %d1, %d2
-  add.l (%a0), %d3
-  add.b %d5, (%a0)
-  addx.w %d1, %d2
-  addx.l %d0, %d3
-  addx.w %d5, %d0
+	lsl.b %d0, %d0
+	lsr.b %d0, %d0
+	asr.b %d0, %d0
+	ror.b %d0, %d0
+	| adda.w (%a0), %a2
+	| adda.l (%a1), %a2
+  | add.w %d1, %d2
+  | add.l (%a0), %d3
+  | add.b %d5, (%a0)
+  | addx.w %d1, %d2
+  | addx.l %d0, %d3
+  | addx.w %d5, %d0
 	| illegal
 	| reset
 	| nop

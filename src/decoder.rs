@@ -11,6 +11,10 @@ pub enum InstructionKind {
     Rte,
     Rts,
     Rtr,
+    Asd(Shift),
+    Lsd(Shift),
+    Roxd(Shift),
+    Rod(Shift),
     Tas {
         mode: AddressingMode,
     },
@@ -72,6 +76,33 @@ pub struct PreDec {
 pub enum Addx {
     Dn(Dn),
     PreDec(PreDec),
+}
+
+// <ea>
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub struct ShiftEa {
+    direction: RightOrLeft,
+    mode: AddressingMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum ShiftCount {
+    Immediate(u8),
+    Register(DataReg),
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub struct ShiftReg {
+    direction: RightOrLeft,
+    size: Size,
+    count: ShiftCount,
+    dst: DataReg,
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum Shift {
+    Ea(ShiftEa),
+    Reg(ShiftReg),
 }
 
 #[allow(unused)]
@@ -208,6 +239,17 @@ impl Decoder {
         }
     }
 
+    fn resolve_shift(&self, shift: Shift, start: usize, bytes: &mut Vec<u8>) -> Result<Shift> {
+        match shift {
+            Shift::Ea(ShiftEa { direction, mode }) => {
+                let mode = self.resolve_ea(mode, start + 2, Some(Size::Word))?;
+                bytes.extend(mode.to_bytes());
+                Ok(Shift::Ea(ShiftEa { direction, mode }))
+            }
+            Shift::Reg(_) => Ok(shift),
+        }
+    }
+
     fn decode_instruction(&self, start: usize) -> Result<Instruction> {
         let opcode = self.memory.read_word(start)?;
         let instr_kind = Self::get_op_kind(opcode)?;
@@ -220,6 +262,22 @@ impl Decoder {
             | InstructionKind::Rts
             | InstructionKind::Rtr
             | InstructionKind::TrapV => instr_kind,
+            InstructionKind::Asd(shift) => {
+                let shift = self.resolve_shift(shift, start, &mut bytes)?;
+                InstructionKind::Asd(shift)
+            }
+            InstructionKind::Lsd(shift) => {
+                let shift = self.resolve_shift(shift, start, &mut bytes)?;
+                InstructionKind::Lsd(shift)
+            }
+            InstructionKind::Roxd(shift) => {
+                let shift = self.resolve_shift(shift, start, &mut bytes)?;
+                InstructionKind::Roxd(shift)
+            }
+            InstructionKind::Rod(shift) => {
+                let shift = self.resolve_shift(shift, start, &mut bytes)?;
+                InstructionKind::Rod(shift)
+            }
             InstructionKind::Tas { mode } => {
                 let mode = self.resolve_ea(mode, start + 2, Some(Size::Byte))?;
                 bytes.extend(mode.to_bytes());
@@ -338,6 +396,48 @@ impl Decoder {
                     }
                 }
                 bail!("Unsupported");
+            }
+            0b1110 => {
+                let direction = RightOrLeft::from_bit(eight_nine)?;
+                if size_bits == 0b11 {
+                    let mode = effective_address(ea_bits)?;
+                    let shift = Shift::Ea(ShiftEa { direction, mode });
+                    return match top_reg {
+                        0b000 => Ok(InstructionKind::Asd(shift)),
+                        0b001 => Ok(InstructionKind::Lsd(shift)),
+                        0b010 => Ok(InstructionKind::Roxd(shift)),
+                        0b011 => Ok(InstructionKind::Rod(shift)),
+                        _ => bail!("Unsupported shift/rotate opmode: {:#05b}", top_reg),
+                    };
+                }
+
+                let size = Size::from_size_bits(size_bits)?;
+                let rotation = Rotation::from_bit(bit_range(opcode, 5, 6))?;
+                let count = match rotation {
+                    Rotation::Immediate => {
+                        let count = match top_reg {
+                            0 => 8,
+                            other => other,
+                        };
+                        ShiftCount::Immediate(count)
+                    }
+                    Rotation::Register => ShiftCount::Register(DataReg::from_bits(top_reg)?),
+                };
+                let dst = DataReg::from_bits(ea_reg)?;
+                let shift = Shift::Reg(ShiftReg {
+                    direction,
+                    size,
+                    count,
+                    dst,
+                });
+                let op_field = bit_range(opcode, 3, 5);
+                match op_field {
+                    0b00 => Ok(InstructionKind::Asd(shift)),
+                    0b01 => Ok(InstructionKind::Lsd(shift)),
+                    0b10 => Ok(InstructionKind::Roxd(shift)),
+                    0b11 => Ok(InstructionKind::Rod(shift)),
+                    _ => unreachable!(),
+                }
             }
             0b1101 => {
                 // Add/Addx/Adda
@@ -623,10 +723,20 @@ pub enum DnEa {
 }
 
 #[allow(unused)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RightOrLeft {
     Right, // R b0
     Left,  // L b1
+}
+
+impl RightOrLeft {
+    fn from_bit(bit: u8) -> Result<Self> {
+        match bit {
+            0 => Ok(RightOrLeft::Right),
+            1 => Ok(RightOrLeft::Left),
+            _ => bail!("Invalid direction bit: {bit}"),
+        }
+    }
 }
 
 #[allow(unused)]
@@ -641,4 +751,14 @@ pub enum Mode {
 pub enum Rotation {
     Immediate, // 0
     Register,  // 1
+}
+
+impl Rotation {
+    fn from_bit(bit: u8) -> Result<Self> {
+        match bit {
+            0 => Ok(Rotation::Immediate),
+            1 => Ok(Rotation::Register),
+            _ => bail!("Invalid rotation bit: {bit}"),
+        }
+    }
 }
