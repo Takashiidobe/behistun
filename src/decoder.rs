@@ -91,7 +91,7 @@ pub enum AddressModeData {
 }
 
 impl AddressModeData {
-    pub fn to_bytes(&self) -> Vec<u8> {
+    pub fn to_bytes(self) -> Vec<u8> {
         match self {
             AddressModeData::Short(v) => v.to_be_bytes().to_vec(),
             AddressModeData::Long(v) => v.to_be_bytes().to_vec(),
@@ -215,16 +215,12 @@ impl Decoder {
             | InstructionKind::TrapV => instr_kind,
             InstructionKind::Jsr { mode } => {
                 let mode = self.resolve_ea(mode, start + 2, None)?;
-                if let Some(data) = mode.data {
-                    bytes.extend(data.to_bytes());
-                }
+                bytes.extend(mode.to_bytes());
                 InstructionKind::Jsr { mode }
             }
             InstructionKind::Jmp { mode } => {
                 let mode = self.resolve_ea(mode, start + 2, None)?;
-                if let Some(data) = mode.data {
-                    bytes.extend(data.to_bytes());
-                }
+                bytes.extend(mode.to_bytes());
                 InstructionKind::Jmp { mode }
             }
             InstructionKind::Adda {
@@ -233,9 +229,7 @@ impl Decoder {
                 mode,
             } => {
                 let mode = self.resolve_ea(mode, start + 2, None)?;
-                if let Some(data) = mode.data {
-                    bytes.extend(data.to_bytes());
-                }
+                bytes.extend(mode.to_bytes());
                 InstructionKind::Adda {
                     addr_reg,
                     size,
@@ -245,16 +239,12 @@ impl Decoder {
             InstructionKind::Add(add) => match add {
                 Add::EaToDn(EaToDn { size, dst, src }) => {
                     let src = self.resolve_ea(src, start + 2, None)?;
-                    if let Some(data) = src.data {
-                        bytes.extend(data.to_bytes());
-                    }
+                    bytes.extend(src.to_bytes());
                     InstructionKind::Add(Add::EaToDn(EaToDn { size, src, dst }))
                 }
                 Add::DnToEa(DnToEa { size, src, dst }) => {
                     let dst = self.resolve_ea(dst, start + 2, None)?;
-                    if let Some(data) = dst.data {
-                        bytes.extend(data.to_bytes());
-                    }
+                    bytes.extend(dst.to_bytes());
                     InstructionKind::Add(Add::DnToEa(DnToEa { size, src, dst }))
                 }
             },
@@ -297,18 +287,19 @@ impl Decoder {
             0b0100 => {
                 // Jsr/Jmp
                 if nine_twelve == 0b111 && seven_nine == 0b01 {
-                    // Jsr
+                    // Jsr <ea>
                     if six_seven == 0b0 {
                         return Ok(InstructionKind::Jsr {
                             mode: effective_address(ea_bits)?,
                         });
                     } else {
-                        // Jmp
+                        // Jmp <ea>
                         return Ok(InstructionKind::Jmp {
                             mode: effective_address(ea_bits)?,
                         });
                     }
                 }
+                // Tas/TST
                 bail!("Unsupported");
             }
             0b1101 => {
@@ -443,6 +434,16 @@ impl From<EffectiveAddress> for AddressingMode {
         Self {
             ea: value,
             data: None,
+        }
+    }
+}
+
+impl AddressingMode {
+    pub fn to_bytes(self) -> Vec<u8> {
+        if let Some(data) = self.data {
+            data.to_bytes()
+        } else {
+            vec![]
         }
     }
 }
