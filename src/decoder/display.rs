@@ -151,6 +151,10 @@ impl fmt::Display for InstructionKind {
             InstructionKind::Andi(imm_op) => write!(f, "andi{}", imm_op),
             InstructionKind::Subi(imm_op) => write!(f, "subi{}", imm_op),
             InstructionKind::Addi(imm_op) => write!(f, "addi{}", imm_op),
+            InstructionKind::Eori(imm_op) => write!(f, "eori{}", imm_op),
+            InstructionKind::Cmpi(imm_op) => write!(f, "cmpi{}", imm_op),
+            InstructionKind::EoriToCcr { imm } => write!(f, "eori #0x{:02x}, %ccr", imm),
+            InstructionKind::EoriToSr { imm } => write!(f, "eori #0x{:04x}, %sr", imm),
         }
     }
 }

@@ -68,6 +68,14 @@ pub enum InstructionKind {
     Andi(ImmOp),
     Subi(ImmOp),
     Addi(ImmOp),
+    Eori(ImmOp),
+    Cmpi(ImmOp),
+    EoriToCcr {
+        imm: u8,
+    },
+    EoriToSr {
+        imm: u16,
+    },
 }
 
 // <ea>,Dn
@@ -375,12 +383,7 @@ impl Decoder {
         })
     }
 
-    fn resolve_imm_op(
-        &self,
-        imm_op: ImmOp,
-        start: usize,
-        bytes: &mut Vec<u8>,
-    ) -> Result<ImmOp> {
+    fn resolve_imm_op(&self, imm_op: ImmOp, start: usize, bytes: &mut Vec<u8>) -> Result<ImmOp> {
         // Read immediate value based on size
         let (imm, imm_len) = match imm_op.size {
             Size::Byte => {
@@ -573,6 +576,24 @@ impl Decoder {
             InstructionKind::Addi(imm_op) => {
                 let imm_op = self.resolve_imm_op(imm_op, start, &mut bytes)?;
                 InstructionKind::Addi(imm_op)
+            }
+            InstructionKind::Eori(imm_op) => {
+                let imm_op = self.resolve_imm_op(imm_op, start, &mut bytes)?;
+                InstructionKind::Eori(imm_op)
+            }
+            InstructionKind::Cmpi(imm_op) => {
+                let imm_op = self.resolve_imm_op(imm_op, start, &mut bytes)?;
+                InstructionKind::Cmpi(imm_op)
+            }
+            InstructionKind::EoriToCcr { .. } => {
+                let word = self.memory.read_word(start + 2)?;
+                bytes.extend(word.to_be_bytes());
+                InstructionKind::EoriToCcr { imm: word as u8 }
+            }
+            InstructionKind::EoriToSr { .. } => {
+                let word = self.memory.read_word(start + 2)?;
+                bytes.extend(word.to_be_bytes());
+                InstructionKind::EoriToSr { imm: word }
             }
         };
 
@@ -768,6 +789,14 @@ impl Decoder {
                 }
             }
             0b0000 => {
+                // EORI to CCR: 0000 1010 0011 1100 (0x0A3C)
+                if opcode == 0x0A3C {
+                    return Ok(InstructionKind::EoriToCcr { imm: 0 });
+                }
+                // EORI to SR: 0000 1010 0111 1100 (0x0A7C)
+                if opcode == 0x0A7C {
+                    return Ok(InstructionKind::EoriToSr { imm: 0 });
+                }
                 // Btst/Bchg/Bclr/Bset #imm
                 if op_nibble == 0b1000 {
                     let mode = effective_address(ea_bits)?;
@@ -793,9 +822,9 @@ impl Decoder {
                         _ => unreachable!(),
                     };
                 }
-                // Andi/Subi/Addi #imm, <ea>
-                // 0000 oooo ss eeeeee (oooo: 0010=ANDI, 0100=SUBI, 0110=ADDI)
-                if matches!(op_nibble, 0b0010 | 0b0100 | 0b0110) {
+                // Andi/Subi/Addi/Eori/Cmpi #imm, <ea>
+                // 0000 oooo ss eeeeee (oooo: 0010=ANDI, 0100=SUBI, 0110=ADDI, 1010=EORI, 1100=CMPI)
+                if matches!(op_nibble, 0b0010 | 0b0100 | 0b0110 | 0b1010 | 0b1100) {
                     let size = Size::from_size_bits(size_bits)?;
                     let mode = effective_address(ea_bits)?;
                     // Immediate value will be read during resolve
@@ -808,6 +837,8 @@ impl Decoder {
                         0b0010 => Ok(InstructionKind::Andi(imm_op)),
                         0b0100 => Ok(InstructionKind::Subi(imm_op)),
                         0b0110 => Ok(InstructionKind::Addi(imm_op)),
+                        0b1010 => Ok(InstructionKind::Eori(imm_op)),
+                        0b1100 => Ok(InstructionKind::Cmpi(imm_op)),
                         _ => unreachable!(),
                     };
                 }

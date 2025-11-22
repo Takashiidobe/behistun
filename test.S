@@ -1,11 +1,19 @@
 .globl _start
 _start:
-	andi.b #0x0f, %d0
-	andi.w #0x1234, (%a0)
-	andi.l #0x12345678, %d1
-	subi.b #5, %d2
-	subi.w #100, (%a1)
-	addi.l #0xaabbccdd, %d3
+	eori #0x1f, %ccr
+	eori #0x2700, %sr
+	eori.b #0xaa, %d0
+	eori.w #0x5555, (%a0)
+	eori.l #0x12345678, %d1
+	cmpi.b #10, %d0
+	cmpi.w #0x1000, (%a1)
+	cmpi.l #0xdeadbeef, %d2
+	| andi.b #0x0f, %d0
+	| andi.w #0x1234, (%a0)
+	| andi.l #0x12345678, %d1
+	| subi.b #5, %d2
+	| subi.w #100, (%a1)
+	| addi.l #0xaabbccdd, %d3
 	| sub.w %d1, %d2
 	| sub.l (%a0), %d3
 	| sub.b %d5, (%a0)

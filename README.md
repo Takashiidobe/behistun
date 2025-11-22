@@ -50,3 +50,6 @@ The following instructions are currently supported by the decoder:
 - `addi`
 - `andi`
 - `subi`
+
+- `eori`
+- `cmpi`
