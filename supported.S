@@ -1,5 +1,19 @@
 .globl _start
 _start:
+  divu.w %d0, %d1
+  divu.w (%a0), %d2
+  divu.w 0x1000.w, %d3
+  divs.w %d4, %d5
+  divs.w (%a1), %d6
+  divs.w #100, %d7
+  sbcd %d0, %d1
+  sbcd -(%a0), -(%a1)
+  or.b %d0, %d1
+  or.w (%a0), %d2
+  or.l #0x12345678, %d3
+  or.b %d4, (%a2)
+  or.w %d5, 0x2000.w
+  or.l %d6, (%a3)+
   st %d0
   sf %d1
   shi (%a0)

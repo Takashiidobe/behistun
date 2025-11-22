@@ -81,6 +81,16 @@ pub enum InstructionKind {
         condition: Condition,
         displacement: i32,
     },
+    Divu {
+        src: AddressingMode,
+        dst: DataReg,
+    },
+    Divs {
+        src: AddressingMode,
+        dst: DataReg,
+    },
+    Sbcd(Sbcd),
+    Or(Or),
     Suba {
         addr_reg: AddrReg,
         size: Size,
@@ -219,6 +229,19 @@ pub enum Sub {
 pub enum Subx {
     Dn(Dn),
     PreDec(PreDec),
+}
+
+// SBCD is always byte-sized
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum Sbcd {
+    Dn { src: DataReg, dst: DataReg },
+    PreDec { src: AddrReg, dst: AddrReg },
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum Or {
+    EaToDn(EaToDn),
+    DnToEa(DnToEa),
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -715,6 +738,29 @@ impl Decoder {
                     displacement,
                 }
             }
+            InstructionKind::Divu { src, dst } => {
+                let src = self.resolve_ea(src, start + 2, Some(Size::Word))?;
+                bytes.extend(src.to_bytes());
+                InstructionKind::Divu { src, dst }
+            }
+            InstructionKind::Divs { src, dst } => {
+                let src = self.resolve_ea(src, start + 2, Some(Size::Word))?;
+                bytes.extend(src.to_bytes());
+                InstructionKind::Divs { src, dst }
+            }
+            InstructionKind::Sbcd(_) => instr_kind,
+            InstructionKind::Or(or) => match or {
+                Or::EaToDn(EaToDn { size, dst, src }) => {
+                    let src = self.resolve_ea(src, start + 2, Some(size))?;
+                    bytes.extend(src.to_bytes());
+                    InstructionKind::Or(Or::EaToDn(EaToDn { size, src, dst }))
+                }
+                Or::DnToEa(DnToEa { size, src, dst }) => {
+                    let dst = self.resolve_ea(dst, start + 2, Some(size))?;
+                    bytes.extend(dst.to_bytes());
+                    InstructionKind::Or(Or::DnToEa(DnToEa { size, src, dst }))
+                }
+            },
             InstructionKind::Suba {
                 addr_reg,
                 size,
@@ -1277,6 +1323,53 @@ impl Decoder {
                     0 => Ok(InstructionKind::Addq(quick_op)),
                     1 => Ok(InstructionKind::Subq(quick_op)),
                     _ => unreachable!(),
+                }
+            }
+            // OR/DIVU/DIVS/SBCD: 1000 rrr ooo eeeeee
+            0b1000 => {
+                match opmode {
+                    // OR <ea>,Dn: opmode 000-010
+                    0b000..=0b010 => Ok(InstructionKind::Or(Or::EaToDn(EaToDn {
+                        size: Size::from_size_bits(size_bits)?,
+                        dst: DataReg::from_bits(top_reg)?,
+                        src: effective_address(ea_bits)?,
+                    }))),
+                    // DIVU <ea>,Dn: opmode 011
+                    0b011 => Ok(InstructionKind::Divu {
+                        src: effective_address(ea_bits)?,
+                        dst: DataReg::from_bits(top_reg)?,
+                    }),
+                    // SBCD/OR Dn,<ea>: opmode 100
+                    0b100 => match ea_mode {
+                        // SBCD Dy,Dx
+                        0b000 => Ok(InstructionKind::Sbcd(Sbcd::Dn {
+                            src: DataReg::from_bits(ea_reg)?,
+                            dst: DataReg::from_bits(top_reg)?,
+                        })),
+                        // SBCD -(Ay),-(Ax)
+                        0b001 => Ok(InstructionKind::Sbcd(Sbcd::PreDec {
+                            src: AddrReg::from_bits(ea_reg)?,
+                            dst: AddrReg::from_bits(top_reg)?,
+                        })),
+                        // OR Dn,<ea>
+                        _ => Ok(InstructionKind::Or(Or::DnToEa(DnToEa {
+                            size: Size::Byte,
+                            src: DataReg::from_bits(top_reg)?,
+                            dst: effective_address(ea_bits)?,
+                        }))),
+                    },
+                    // OR Dn,<ea>: opmode 101-110
+                    0b101 | 0b110 => Ok(InstructionKind::Or(Or::DnToEa(DnToEa {
+                        size: Size::from_size_bits(size_bits)?,
+                        src: DataReg::from_bits(top_reg)?,
+                        dst: effective_address(ea_bits)?,
+                    }))),
+                    // DIVS <ea>,Dn: opmode 111
+                    0b111 => Ok(InstructionKind::Divs {
+                        src: effective_address(ea_bits)?,
+                        dst: DataReg::from_bits(top_reg)?,
+                    }),
+                    _ => bail!("Unsupported group 8 opmode: {:#05b}", opmode),
                 }
             }
             0b1001 => {

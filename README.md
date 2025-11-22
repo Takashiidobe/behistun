@@ -79,3 +79,7 @@ The following instructions are currently supported by the decoder:
 - `bsr`
 - `bcc`
 
+- `divu`
+- `divs`
+- `sbcd`
+- `or`

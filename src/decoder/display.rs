@@ -1,8 +1,8 @@
 use super::{
     AddrReg, AddressingMode, BitOp, BitOpImm, BitOpReg, Condition, DataDir, DataReg,
     EffectiveAddress, ExtMode, Immediate, ImmOp, Instruction, InstructionKind, Movem, Movep,
-    MovepDirection, QuickOp, RightOrLeft, Shift, ShiftCount, ShiftEa, ShiftReg, Size, Sub, Subx,
-    UnaryOp, UspDirection,
+    MovepDirection, Or, QuickOp, RightOrLeft, Sbcd, Shift, ShiftCount, ShiftEa, ShiftReg, Size,
+    Sub, Subx, UnaryOp, UspDirection,
 };
 use crate::decoder::Add;
 use std::fmt;
@@ -262,6 +262,24 @@ impl fmt::Display for InstructionKind {
             } => {
                 write!(f, "b{} {}", condition, format_signed_hex(*displacement))
             }
+            InstructionKind::Divu { src, dst } => {
+                write!(f, "divu.w {}, {}", src, dst)
+            }
+            InstructionKind::Divs { src, dst } => {
+                write!(f, "divs.w {}, {}", src, dst)
+            }
+            InstructionKind::Sbcd(sbcd) => match sbcd {
+                Sbcd::Dn { src, dst } => write!(f, "sbcd {}, {}", src, dst),
+                Sbcd::PreDec { src, dst } => write!(f, "sbcd -({src}), -({dst})"),
+            },
+            InstructionKind::Or(or) => match or {
+                Or::EaToDn(super::EaToDn { size, dst, src }) => {
+                    write!(f, "or{size} {src}, {dst}")
+                }
+                Or::DnToEa(super::DnToEa { size, src, dst }) => {
+                    write!(f, "or{size} {src}, {dst}")
+                }
+            },
             InstructionKind::Suba {
                 addr_reg,
                 size,
