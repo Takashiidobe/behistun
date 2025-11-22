@@ -1,9 +1,12 @@
 .globl _start
 _start:
-	negx.w %d0 
-	clr.w %d0 
-	neg.w %d0 
-	not.w %d1
+	trap #10
+	link.w %a6, #-12
+	unlk %a0
+	| negx.w %d0 
+	| clr.w %d0 
+	| neg.w %d0 
+	| not.w %d1
 	| lsl.b %d0, %d0
 	| lsr.b %d0, %d0
 	| asr.b %d0, %d0

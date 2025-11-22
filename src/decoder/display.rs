@@ -89,6 +89,12 @@ impl fmt::Display for InstructionKind {
             InstructionKind::Lsd(shift) => write!(f, "ls{}", shift),
             InstructionKind::Roxd(shift) => write!(f, "rox{}", shift),
             InstructionKind::Rod(shift) => write!(f, "ro{}", shift),
+            InstructionKind::Trap { vector } => write!(f, "trap #{vector}"),
+            InstructionKind::Link {
+                addr_reg,
+                displacement,
+            } => write!(f, "link {}, #{}", addr_reg, displacement),
+            InstructionKind::Unlk { addr_reg } => write!(f, "unlk {}", addr_reg),
         }
     }
 }

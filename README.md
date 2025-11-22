@@ -33,3 +33,7 @@ The following instructions are currently supported by the decoder:
 - `Clr`
 - `Neg`
 - `Not`
+
+- `Trap`
+- `Lnk`
+- `Unlk`

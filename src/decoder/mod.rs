@@ -42,6 +42,16 @@ pub enum InstructionKind {
     Add(Add),
     Addx(Addx),
     TrapV,
+    Trap {
+        vector: u8,
+    },
+    Link {
+        addr_reg: AddrReg,
+        displacement: i16,
+    },
+    Unlk {
+        addr_reg: AddrReg,
+    },
 }
 
 // <ea>,Dn
@@ -362,6 +372,19 @@ impl Decoder {
                 }
             },
             InstructionKind::Addx(_) => instr_kind,
+            InstructionKind::Trap { vector } => InstructionKind::Trap { vector },
+            InstructionKind::Link {
+                addr_reg,
+                displacement: _,
+            } => {
+                let disp_word = self.memory.read_word(start + 2)?;
+                bytes.extend(disp_word.to_be_bytes());
+                InstructionKind::Link {
+                    addr_reg,
+                    displacement: disp_word as i16,
+                }
+            }
+            InstructionKind::Unlk { addr_reg } => InstructionKind::Unlk { addr_reg },
         };
 
         let instruction = Instruction {
@@ -390,17 +413,42 @@ impl Decoder {
         let top_reg = bit_range(opcode, 9, 12); // 9..12
         let op_nibble = bit_range(opcode, 8, 12); // 8..12
         let eight_nine = bit_range(opcode, 8, 9); // 8..9
-        let seven_nine = bit_range(opcode, 7, 9); // 7..9
+        let _seven_nine = bit_range(opcode, 7, 9); // 7..9
         let opmode = bit_range(opcode, 6, 9); //  6..9
         let six_seven = bit_range(opcode, 6, 7); // 6..7
         let size_bits = bit_range(opcode, 6, 8); // 6..8
+        let mid = bit_range(opcode, 4, 8); // 4..8
         let ea_bits = bit_range(opcode, 0, 6); // 0..6
         let ea_mode = bit_range(opcode, 3, 6); // 3..6
+        let op_field = bit_range(opcode, 3, 5); // 3..5
+        let link_unlk_bit = bit_range(opcode, 3, 4); // 3..4
         let ea_reg = bit_range(opcode, 0, 3); // 0..3
+        let trap_bits = bit_range(opcode, 0, 4); // 0..4
         match group {
             0b0100 => {
+                // Trap
+                if op_nibble == 0b1110 && mid == 0b0100 {
+                    return Ok(InstructionKind::Trap { vector: trap_bits });
+                }
+
+                // Link/Unlk
+                if op_nibble == 0b1110 && mid == 0b0101 {
+                    let addr_reg = AddrReg::from_bits(ea_reg)?;
+
+                    if link_unlk_bit == 0 {
+                        // Link An,#disp
+                        return Ok(InstructionKind::Link {
+                            addr_reg,
+                            displacement: 0,
+                        });
+                    } else {
+                        // UNLK An
+                        return Ok(InstructionKind::Unlk { addr_reg });
+                    }
+                }
+
                 // Jsr/Jmp
-                if top_reg == 0b111 && seven_nine == 0b01 {
+                if top_reg == 0b111 && opmode == 0b100 {
                     match six_seven == 0b0 {
                         // Jsr <ea>
                         true => {
@@ -484,7 +532,6 @@ impl Decoder {
                     count,
                     dst,
                 });
-                let op_field = bit_range(opcode, 3, 5);
                 match op_field {
                     0b00 => Ok(InstructionKind::Asd(shift)),
                     0b01 => Ok(InstructionKind::Lsd(shift)),
@@ -862,4 +909,3 @@ impl Rotation {
         }
     }
 }
-
