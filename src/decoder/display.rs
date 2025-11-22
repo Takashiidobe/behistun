@@ -1,6 +1,6 @@
 use super::{
-    AddrReg, AddressingMode, BitOp, DataReg, EffectiveAddress, Immediate, Instruction,
-    InstructionKind, RightOrLeft, Shift, ShiftCount, ShiftEa, ShiftReg, Size, UnaryOp,
+    AddrReg, AddressingMode, BitOp, BitOpImm, BitOpReg, DataReg, EffectiveAddress, Immediate,
+    Instruction, InstructionKind, RightOrLeft, Shift, ShiftCount, ShiftEa, ShiftReg, Size, UnaryOp,
 };
 use crate::decoder::Add;
 use std::fmt;
@@ -48,7 +48,14 @@ impl fmt::Display for UnaryOp {
 
 impl fmt::Display for BitOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "#{}, {}", self.bit_num, self.mode)
+        match self {
+            BitOp::Imm(BitOpImm { bit_num, mode }) => {
+                write!(f, "#{}, {}", bit_num, mode)
+            }
+            BitOp::Reg(BitOpReg { bit_reg, mode }) => {
+                write!(f, "{}, {}", bit_reg, mode)
+            }
+        }
     }
 }
 

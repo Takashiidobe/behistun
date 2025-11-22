@@ -4,6 +4,10 @@ _start:
 	bclr #4, (%a0)
 	btst #7, %d0
 	bset #0, 8(%a1)
+	bchg %d0, %d1
+	bclr %d1, (%a0)
+	bset %d2, 8(%a0)
+	btst %d3, %d4
 	| trap #10
 	| link.w %a6, #-12
 	| unlk %a0
