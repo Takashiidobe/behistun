@@ -20,3 +20,6 @@ The following instructions are currently supported by the decoder:
 - `Add`
 - `Adda`
 - `Addx`
+
+- `Tas`
+- `Tst`

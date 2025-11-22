@@ -11,6 +11,13 @@ pub enum InstructionKind {
     Rte,
     Rts,
     Rtr,
+    Tas {
+        mode: AddressingMode,
+    },
+    Tst {
+        size: Size,
+        mode: AddressingMode,
+    },
     Jsr {
         mode: AddressingMode,
     },
@@ -213,6 +220,16 @@ impl Decoder {
             | InstructionKind::Rts
             | InstructionKind::Rtr
             | InstructionKind::TrapV => instr_kind,
+            InstructionKind::Tas { mode } => {
+                let mode = self.resolve_ea(mode, start + 2, Some(Size::Byte))?;
+                bytes.extend(mode.to_bytes());
+                InstructionKind::Tas { mode }
+            }
+            InstructionKind::Tst { size, mode } => {
+                let mode = self.resolve_ea(mode, start + 2, Some(size))?;
+                bytes.extend(mode.to_bytes());
+                InstructionKind::Tst { size, mode }
+            }
             InstructionKind::Jsr { mode } => {
                 let mode = self.resolve_ea(mode, start + 2, None)?;
                 bytes.extend(mode.to_bytes());
@@ -274,7 +291,7 @@ impl Decoder {
         }
 
         let group = bit_range(opcode, 12, 16); // 12..16
-        let nine_twelve = bit_range(opcode, 9, 12); // 9..12
+        let top_reg = bit_range(opcode, 9, 12); // 9..12
         let eight_nine = bit_range(opcode, 8, 9); // 8..9
         let seven_nine = bit_range(opcode, 7, 9); // 7..9
         let opmode = bit_range(opcode, 6, 9); //  6..9
@@ -286,20 +303,40 @@ impl Decoder {
         match group {
             0b0100 => {
                 // Jsr/Jmp
-                if nine_twelve == 0b111 && seven_nine == 0b01 {
-                    // Jsr <ea>
-                    if six_seven == 0b0 {
-                        return Ok(InstructionKind::Jsr {
-                            mode: effective_address(ea_bits)?,
-                        });
-                    } else {
-                        // Jmp <ea>
-                        return Ok(InstructionKind::Jmp {
-                            mode: effective_address(ea_bits)?,
-                        });
+                if top_reg == 0b111 && seven_nine == 0b01 {
+                    match six_seven == 0b0 {
+                        // Jsr <ea>
+                        true => {
+                            return Ok(InstructionKind::Jsr {
+                                mode: effective_address(ea_bits)?,
+                            });
+                        }
+                        false => {
+                            // Jmp <ea>
+                            return Ok(InstructionKind::Jmp {
+                                mode: effective_address(ea_bits)?,
+                            });
+                        }
                     }
                 }
-                // Tas/TST
+                // Tas/Tst
+                if top_reg == 0b101 {
+                    match size_bits == 0b11 {
+                        // Tas <ea>
+                        true => {
+                            return Ok(InstructionKind::Tas {
+                                mode: effective_address(ea_bits)?,
+                            });
+                        }
+                        false => {
+                            // Tst <ea>
+                            return Ok(InstructionKind::Tst {
+                                size: Size::from_size_bits(size_bits)?,
+                                mode: effective_address(ea_bits)?,
+                            });
+                        }
+                    }
+                }
                 bail!("Unsupported");
             }
             0b1101 => {
@@ -307,33 +344,33 @@ impl Decoder {
                 match opmode {
                     // Adda <ea>,An
                     0b011 | 0b111 => Ok(InstructionKind::Adda {
-                        addr_reg: AddrReg::from_bits(nine_twelve)?,
+                        addr_reg: AddrReg::from_bits(top_reg)?,
                         size: Size::from_wl_bit(eight_nine)?,
                         mode: effective_address(ea_bits)?,
                     }),
                     // Add <ea>, Dn
                     0b000..=0b010 => Ok(InstructionKind::Add(Add::EaToDn(EaToDn {
                         size: Size::from_wl_bit(eight_nine)?,
-                        dst: DataReg::from_bits(nine_twelve)?,
+                        dst: DataReg::from_bits(top_reg)?,
                         src: effective_address(ea_bits)?,
                     }))),
                     0b100..=0b110 => match ea_mode {
                         // Addx Dn, Dn
                         0b000 => Ok(InstructionKind::Addx(Addx::Dn(Dn {
                             size: Size::from_size_bits(size_bits)?,
-                            src: DataReg::from_bits(nine_twelve)?,
+                            src: DataReg::from_bits(top_reg)?,
                             dst: DataReg::from_bits(ea_reg)?,
                         }))),
                         // Addx -(An), -(An)
                         0b001 => Ok(InstructionKind::Addx(Addx::PreDec(PreDec {
                             size: Size::from_size_bits(size_bits)?,
                             src: AddrReg::from_bits(ea_reg)?,
-                            dst: AddrReg::from_bits(nine_twelve)?,
+                            dst: AddrReg::from_bits(top_reg)?,
                         }))),
                         // Add Dn,<ea>
                         _ => Ok(InstructionKind::Add(Add::DnToEa(DnToEa {
                             size: Size::from_size_bits(size_bits)?,
-                            src: DataReg::from_bits(nine_twelve)?,
+                            src: DataReg::from_bits(top_reg)?,
                             dst: effective_address(ea_bits)?,
                         }))),
                     },
@@ -521,7 +558,7 @@ impl Size {
             0b00 => Ok(Size::Byte),
             0b01 => Ok(Size::Word),
             0b10 => Ok(Size::Long),
-            _ => bail!("Illegal size field in ADD/ADDX"),
+            _ => bail!("Illegal size field"),
         }
     }
 }
