@@ -1,10 +1,20 @@
 .globl _start
 _start:
-	ori #0x10, %ccr
-	ori #0x0700, %sr
-	ori.b #0x80, %d0
-	ori.w #0xf0f0, (%a0)
-	ori.l #0xaabbccdd, %d1
+	| move.b %d0, %d1
+	| move.w (%a0), %d2
+	| move.l #0x12345678, %d3
+	| movea.w (%a0), %a1
+	| movea.l #0x12345678, %a2
+	| movep.w %d0, 8(%a0)
+	| movep.l 16(%a1), %d2
+	| move.w %sr, %d0
+	| move.w %d0, %ccr
+	| move.w %d0, %sr
+	| orib #16,%ccr
+ 	| oriw #1792,%sr
+ 	| orib #-128,%d0
+ 	| oriw #-3856,%a0@
+ 	| oril #-1430532899,%d1
 	| eori #0x1f, %ccr
 	| eori #0x2700, %sr
 	| eori.b #0xaa, %d0

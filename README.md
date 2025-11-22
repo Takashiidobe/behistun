@@ -55,3 +55,7 @@ The following instructions are currently supported by the decoder:
 - `cmpi`
 
 - `ori`
+
+- `movep`
+- `movea`
+- `move`

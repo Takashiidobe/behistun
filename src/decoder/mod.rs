@@ -83,6 +83,26 @@ pub enum InstructionKind {
     OriToSr {
         imm: u16,
     },
+    Move {
+        size: Size,
+        src: AddressingMode,
+        dst: AddressingMode,
+    },
+    Movea {
+        size: Size,
+        src: AddressingMode,
+        dst: AddrReg,
+    },
+    Movep(Movep),
+    MoveFromSr {
+        dst: AddressingMode,
+    },
+    MoveToCcr {
+        src: AddressingMode,
+    },
+    MoveToSr {
+        src: AddressingMode,
+    },
 }
 
 // <ea>,Dn
@@ -136,6 +156,21 @@ pub enum Sub {
 pub enum Subx {
     Dn(Dn),
     PreDec(PreDec),
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub struct Movep {
+    pub size: Size,
+    pub data_reg: DataReg,
+    pub addr_reg: AddrReg,
+    pub displacement: i16,
+    pub direction: MovepDirection,
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum MovepDirection {
+    MemToReg,
+    RegToMem,
 }
 
 // <ea>
@@ -616,6 +651,50 @@ impl Decoder {
                 bytes.extend(word.to_be_bytes());
                 InstructionKind::OriToSr { imm: word }
             }
+            InstructionKind::Move { size, src, dst } => {
+                let src = self.resolve_ea(src, start + 2, Some(size))?;
+                bytes.extend(src.to_bytes());
+                let dst = self.resolve_ea(dst, start + 2 + src.to_bytes().len(), None)?;
+                bytes.extend(dst.to_bytes());
+                InstructionKind::Move { size, src, dst }
+            }
+            InstructionKind::Movea { size, src, dst } => {
+                let src = self.resolve_ea(src, start + 2, Some(size))?;
+                bytes.extend(src.to_bytes());
+                InstructionKind::Movea { size, src, dst }
+            }
+            InstructionKind::Movep(Movep {
+                size,
+                data_reg,
+                addr_reg,
+                direction,
+                ..
+            }) => {
+                let disp_word = self.memory.read_word(start + 2)?;
+                bytes.extend(disp_word.to_be_bytes());
+                InstructionKind::Movep(Movep {
+                    size,
+                    data_reg,
+                    addr_reg,
+                    displacement: disp_word as i16,
+                    direction,
+                })
+            }
+            InstructionKind::MoveFromSr { dst } => {
+                let dst = self.resolve_ea(dst, start + 2, Some(Size::Word))?;
+                bytes.extend(dst.to_bytes());
+                InstructionKind::MoveFromSr { dst }
+            }
+            InstructionKind::MoveToCcr { src } => {
+                let src = self.resolve_ea(src, start + 2, Some(Size::Word))?;
+                bytes.extend(src.to_bytes());
+                InstructionKind::MoveToCcr { src }
+            }
+            InstructionKind::MoveToSr { src } => {
+                let src = self.resolve_ea(src, start + 2, Some(Size::Word))?;
+                bytes.extend(src.to_bytes());
+                InstructionKind::MoveToSr { src }
+            }
         };
 
         let instruction = Instruction {
@@ -712,6 +791,19 @@ impl Decoder {
                             });
                         }
                     }
+                }
+                // MOVE from SR / MOVE to CCR / MOVE to SR
+                // MOVE from SR: 0100 0000 11 eeeeee
+                // MOVE to CCR:  0100 0100 11 eeeeee
+                // MOVE to SR:   0100 0110 11 eeeeee
+                if size_bits == 0b11 && matches!(op_nibble, 0b0000 | 0b0100 | 0b0110) {
+                    let mode = effective_address(ea_bits)?;
+                    return match op_nibble {
+                        0b0000 => Ok(InstructionKind::MoveFromSr { dst: mode }),
+                        0b0100 => Ok(InstructionKind::MoveToCcr { src: mode }),
+                        0b0110 => Ok(InstructionKind::MoveToSr { src: mode }),
+                        _ => unreachable!(),
+                    };
                 }
                 match op_nibble {
                     0b0000 | 0b0010 | 0b0100 | 0b0110 => {
@@ -826,6 +918,26 @@ impl Decoder {
                 if opcode == 0x007C {
                     return Ok(InstructionKind::OriToSr { imm: 0 });
                 }
+                // MOVEP: 0000 rrr ooo 001 aaa
+                // opmode: 100=MOVEP.W Mem->Reg, 101=MOVEP.L Mem->Reg, 110=MOVEP.W Reg->Mem, 111=MOVEP.L Reg->Mem
+                if ea_mode == 0b001 && opmode >= 0b100 {
+                    let data_reg = DataReg::from_bits(top_reg)?;
+                    let addr_reg = AddrReg::from_bits(ea_reg)?;
+                    let (size, direction) = match opmode {
+                        0b100 => (Size::Word, MovepDirection::MemToReg),
+                        0b101 => (Size::Long, MovepDirection::MemToReg),
+                        0b110 => (Size::Word, MovepDirection::RegToMem),
+                        0b111 => (Size::Long, MovepDirection::RegToMem),
+                        _ => unreachable!(),
+                    };
+                    return Ok(InstructionKind::Movep(Movep {
+                        size,
+                        data_reg,
+                        addr_reg,
+                        displacement: 0, // resolved later
+                        direction,
+                    }));
+                }
                 // Btst/Bchg/Bclr/Bset #imm
                 if op_nibble == 0b1000 {
                     let mode = effective_address(ea_bits)?;
@@ -926,6 +1038,30 @@ impl Decoder {
                     },
                     _ => bail!("Unsupported opmode: {:#05b}", opmode),
                 }
+            }
+            // MOVE/MOVEA: 00ss ddd mmm sss nnn
+            // size encoding: 01=byte, 11=word, 10=long (different from normal!)
+            // ddd=dest reg (top_reg), mmm=dest mode (opmode), sss=src mode (ea_mode), nnn=src reg (ea_reg)
+            0b0001 | 0b0010 | 0b0011 => {
+                let size = match group {
+                    0b0001 => Size::Byte,
+                    0b0011 => Size::Word,
+                    0b0010 => Size::Long,
+                    _ => unreachable!(),
+                };
+                let src = effective_address(ea_bits)?;
+                // Destination EA is encoded differently: mode in bits 6-8, reg in bits 9-11
+                let dst_mode = opmode;
+                let dst_reg = top_reg;
+                // MOVEA: destination is address register (mode == 001)
+                if dst_mode == 0b001 {
+                    let dst = AddrReg::from_bits(dst_reg)?;
+                    return Ok(InstructionKind::Movea { size, src, dst });
+                }
+                // Regular MOVE
+                let dst_ea_bits = (dst_mode << 3) | dst_reg;
+                let dst = effective_address(dst_ea_bits)?;
+                Ok(InstructionKind::Move { size, src, dst })
             }
             _ => bail!("Unsupported group: {:#06b}", group),
         }

@@ -1,7 +1,7 @@
 use super::{
     AddrReg, AddressingMode, BitOp, BitOpImm, BitOpReg, DataReg, EffectiveAddress, Immediate,
-    ImmOp, Instruction, InstructionKind, QuickOp, RightOrLeft, Shift, ShiftCount, ShiftEa,
-    ShiftReg, Size, Sub, Subx, UnaryOp,
+    ImmOp, Instruction, InstructionKind, Movep, MovepDirection, QuickOp, RightOrLeft, Shift,
+    ShiftCount, ShiftEa, ShiftReg, Size, Sub, Subx, UnaryOp,
 };
 use crate::decoder::Add;
 use std::fmt;
@@ -69,6 +69,20 @@ impl fmt::Display for QuickOp {
 impl fmt::Display for ImmOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}, {}", self.size, self.imm, self.mode)
+    }
+}
+
+impl fmt::Display for Movep {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let disp_str = format_signed_hex(self.displacement as i32);
+        match self.direction {
+            MovepDirection::MemToReg => {
+                write!(f, "movep{} {}({}), {}", self.size, disp_str, self.addr_reg, self.data_reg)
+            }
+            MovepDirection::RegToMem => {
+                write!(f, "movep{} {}, {}({})", self.size, self.data_reg, disp_str, self.addr_reg)
+            }
+        }
     }
 }
 
@@ -158,6 +172,12 @@ impl fmt::Display for InstructionKind {
             InstructionKind::Ori(imm_op) => write!(f, "ori{}", imm_op),
             InstructionKind::OriToCcr { imm } => write!(f, "ori #0x{:02x}, %ccr", imm),
             InstructionKind::OriToSr { imm } => write!(f, "ori #0x{:04x}, %sr", imm),
+            InstructionKind::Move { size, src, dst } => write!(f, "move{size} {src}, {dst}"),
+            InstructionKind::Movea { size, src, dst } => write!(f, "movea{size} {src}, {dst}"),
+            InstructionKind::Movep(movep) => write!(f, "{}", movep),
+            InstructionKind::MoveFromSr { dst } => write!(f, "move.w %sr, {dst}"),
+            InstructionKind::MoveToCcr { src } => write!(f, "move.w {src}, %ccr"),
+            InstructionKind::MoveToSr { src } => write!(f, "move.w {src}, %sr"),
         }
     }
 }
