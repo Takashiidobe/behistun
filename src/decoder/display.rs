@@ -280,6 +280,20 @@ impl fmt::Display for InstructionKind {
                     write!(f, "or{size} {src}, {dst}")
                 }
             },
+            InstructionKind::Cmp(super::EaToDn { size, dst, src }) => {
+                write!(f, "cmp{size} {src}, {dst}")
+            }
+            InstructionKind::Cmpa {
+                addr_reg,
+                size,
+                src,
+            } => write!(f, "cmpa{size} {src}, {addr_reg}"),
+            InstructionKind::Cmpm { size, src, dst } => {
+                write!(f, "cmpm{size} ({src})+, ({dst})+")
+            }
+            InstructionKind::Eor(super::DnToEa { size, src, dst }) => {
+                write!(f, "eor{size} {src}, {dst}")
+            }
             InstructionKind::Suba {
                 addr_reg,
                 size,

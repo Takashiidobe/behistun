@@ -83,3 +83,8 @@ The following instructions are currently supported by the decoder:
 - `divs`
 - `sbcd`
 - `or`
+
+- `eor`
+- `cmpm`
+- `cmp`
+- `cmpa`

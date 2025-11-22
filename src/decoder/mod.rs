@@ -91,6 +91,18 @@ pub enum InstructionKind {
     },
     Sbcd(Sbcd),
     Or(Or),
+    Cmp(EaToDn),
+    Cmpa {
+        addr_reg: AddrReg,
+        size: Size,
+        src: AddressingMode,
+    },
+    Cmpm {
+        size: Size,
+        src: AddrReg, // (Ay)+
+        dst: AddrReg, // (Ax)+
+    },
+    Eor(DnToEa),
     Suba {
         addr_reg: AddrReg,
         size: Size,
@@ -761,6 +773,30 @@ impl Decoder {
                     InstructionKind::Or(Or::DnToEa(DnToEa { size, src, dst }))
                 }
             },
+            InstructionKind::Cmp(EaToDn { size, dst, src }) => {
+                let src = self.resolve_ea(src, start + 2, Some(size))?;
+                bytes.extend(src.to_bytes());
+                InstructionKind::Cmp(EaToDn { size, src, dst })
+            }
+            InstructionKind::Cmpa {
+                addr_reg,
+                size,
+                src,
+            } => {
+                let src = self.resolve_ea(src, start + 2, Some(size))?;
+                bytes.extend(src.to_bytes());
+                InstructionKind::Cmpa {
+                    addr_reg,
+                    size,
+                    src,
+                }
+            }
+            InstructionKind::Cmpm { .. } => instr_kind,
+            InstructionKind::Eor(DnToEa { size, src, dst }) => {
+                let dst = self.resolve_ea(dst, start + 2, Some(size))?;
+                bytes.extend(dst.to_bytes());
+                InstructionKind::Eor(DnToEa { size, src, dst })
+            }
             InstructionKind::Suba {
                 addr_reg,
                 size,
@@ -1408,6 +1444,39 @@ impl Decoder {
                         }))),
                     },
                     _ => bail!("Unsupported opmode: {:#05b}", opmode),
+                }
+            }
+            // CMP/CMPA/CMPM/EOR: 1011 rrr ooo eeeeee
+            0b1011 => {
+                match opmode {
+                    // CMP <ea>,Dn: opmode 000-010
+                    0b000..=0b010 => Ok(InstructionKind::Cmp(EaToDn {
+                        size: Size::from_size_bits(size_bits)?,
+                        dst: DataReg::from_bits(top_reg)?,
+                        src: effective_address(ea_bits)?,
+                    })),
+                    // CMPA <ea>,An: opmode 011 (word) or 111 (long)
+                    0b011 | 0b111 => Ok(InstructionKind::Cmpa {
+                        addr_reg: AddrReg::from_bits(top_reg)?,
+                        size: Size::from_wl_bit(eight_nine)?,
+                        src: effective_address(ea_bits)?,
+                    }),
+                    // CMPM/EOR: opmode 100-110
+                    0b100..=0b110 => match ea_mode {
+                        // CMPM (Ay)+,(Ax)+
+                        0b001 => Ok(InstructionKind::Cmpm {
+                            size: Size::from_size_bits(size_bits)?,
+                            src: AddrReg::from_bits(ea_reg)?,
+                            dst: AddrReg::from_bits(top_reg)?,
+                        }),
+                        // EOR Dn,<ea>
+                        _ => Ok(InstructionKind::Eor(DnToEa {
+                            size: Size::from_size_bits(size_bits)?,
+                            src: DataReg::from_bits(top_reg)?,
+                            dst: effective_address(ea_bits)?,
+                        })),
+                    },
+                    _ => bail!("Unsupported group 11 opmode: {:#05b}", opmode),
                 }
             }
             // Bcc/BRA/BSR: 0110 cccc dddddddd

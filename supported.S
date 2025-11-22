@@ -1,5 +1,18 @@
 .globl _start
 _start:
+  cmp.b %d0, %d1
+  cmp.w (%a0), %d2
+  cmp.l 0x1000.w, %d3
+  cmp.w #100, %d4
+  cmpa.w %d0, %a1
+  cmpa.l (%a2), %a3
+  cmpa.w #0x1234, %a4
+  cmpm.b (%a0)+, (%a1)+
+  cmpm.w (%a2)+, (%a3)+
+  cmpm.l (%a4)+, (%a5)+
+  eor.b %d0, %d1
+  eor.w %d2, (%a0)
+  eor.l %d3, 0x2000.w
   divu.w %d0, %d1
   divu.w (%a0), %d2
   divu.w 0x1000.w, %d3
