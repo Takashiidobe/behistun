@@ -404,7 +404,8 @@ impl AddressModeData {
             AddressModeData::Short(v) => v.to_be_bytes().to_vec(),
             AddressModeData::Long(v) => v.to_be_bytes().to_vec(),
             AddressModeData::Imm(immediate) => match immediate {
-                Immediate::Byte(v) => v.to_be_bytes().to_vec(),
+                // Even for byte immediates, the architecture encodes a full word extension.
+                Immediate::Byte(v) => (v as u16).to_be_bytes().to_vec(),
                 Immediate::Word(v) => v.to_be_bytes().to_vec(),
                 Immediate::Long(v) => v.to_be_bytes().to_vec(),
             },
@@ -433,7 +434,17 @@ impl Decoder {
         let mut instructions = vec![];
         let mut pc = start;
         while pc < end {
-            let inst = self.decode_instruction(pc)?;
+            let inst = match self.decode_instruction(pc) {
+                Ok(inst) => inst,
+                Err(err) => {
+                    let opcode = self.memory.read_word(pc)?;
+                    bail!(
+                        "Decode failure at {:#010x} (opcode {:#06x}): {err}",
+                        pc,
+                        opcode
+                    );
+                }
+            };
             let len = inst.len();
             instructions.push(inst);
             pc += len;
@@ -475,8 +486,9 @@ impl Decoder {
                 let size = immediate_size.unwrap_or(Size::Word);
                 let value = match size {
                     Size::Byte => {
-                        let byte = self.memory.read_byte(offset)?;
-                        Immediate::Byte(byte)
+                        let word = self.memory.read_word(offset)?;
+                        // Even for byte-sized immediates the encoding uses a word; keep the byte value.
+                        Immediate::Byte(word as u8)
                     }
                     Size::Word => {
                         let word = self.memory.read_word(offset)?;
@@ -686,7 +698,7 @@ impl Decoder {
                 size,
                 mode,
             } => {
-                let mode = self.resolve_ea(mode, start + 2, None)?;
+                let mode = self.resolve_ea(mode, start + 2, Some(size))?;
                 bytes.extend(mode.to_bytes());
                 InstructionKind::Adda {
                     addr_reg,
@@ -696,12 +708,12 @@ impl Decoder {
             }
             InstructionKind::Add(add) => match add {
                 Add::EaToDn(EaToDn { size, dst, src }) => {
-                    let src = self.resolve_ea(src, start + 2, None)?;
+                    let src = self.resolve_ea(src, start + 2, Some(size))?;
                     bytes.extend(src.to_bytes());
                     InstructionKind::Add(Add::EaToDn(EaToDn { size, src, dst }))
                 }
                 Add::DnToEa(DnToEa { size, src, dst }) => {
-                    let dst = self.resolve_ea(dst, start + 2, None)?;
+                    let dst = self.resolve_ea(dst, start + 2, Some(size))?;
                     bytes.extend(dst.to_bytes());
                     InstructionKind::Add(Add::DnToEa(DnToEa { size, src, dst }))
                 }
@@ -857,7 +869,7 @@ impl Decoder {
                 size,
                 mode,
             } => {
-                let mode = self.resolve_ea(mode, start + 2, None)?;
+                let mode = self.resolve_ea(mode, start + 2, Some(size))?;
                 bytes.extend(mode.to_bytes());
                 InstructionKind::Suba {
                     addr_reg,
@@ -867,12 +879,12 @@ impl Decoder {
             }
             InstructionKind::Sub(sub) => match sub {
                 Sub::EaToDn(EaToDn { size, dst, src }) => {
-                    let src = self.resolve_ea(src, start + 2, None)?;
+                    let src = self.resolve_ea(src, start + 2, Some(size))?;
                     bytes.extend(src.to_bytes());
                     InstructionKind::Sub(Sub::EaToDn(EaToDn { size, src, dst }))
                 }
                 Sub::DnToEa(DnToEa { size, src, dst }) => {
-                    let dst = self.resolve_ea(dst, start + 2, None)?;
+                    let dst = self.resolve_ea(dst, start + 2, Some(size))?;
                     bytes.extend(dst.to_bytes());
                     InstructionKind::Sub(Sub::DnToEa(DnToEa { size, src, dst }))
                 }
@@ -1077,7 +1089,7 @@ impl Decoder {
                 }
 
                 // Jsr/Jmp
-                if top_reg == 0b111 && opmode == 0b100 {
+                if top_reg == 0b111 && matches!(opmode, 0b010 | 0b011) {
                     match six_seven == 0b0 {
                         // Jsr <ea>
                         true => {
@@ -1270,7 +1282,7 @@ impl Decoder {
                     }),
                     // Add <ea>, Dn
                     0b000..=0b010 => Ok(InstructionKind::Add(Add::EaToDn(EaToDn {
-                        size: Size::from_wl_bit(eight_nine)?,
+                        size: Size::from_size_bits(size_bits)?,
                         dst: DataReg::from_bits(top_reg)?,
                         src: effective_address(ea_bits)?,
                     }))),
