@@ -38,7 +38,9 @@ fn run() -> Result<(), Box<dyn Error>> {
             let end = start + section.sh_size as usize;
 
             let instructions = decoder.decode_instructions(start, end)?;
-            dbg!(instructions);
+            for instruction in instructions {
+                println!("{}", instruction);
+            }
         }
     }
 

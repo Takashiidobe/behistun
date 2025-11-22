@@ -1,6 +1,7 @@
 use crate::memory::MemoryImage;
 use anyhow::Result;
 use anyhow::bail;
+use std::fmt;
 
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -41,6 +42,7 @@ pub enum InstructionKind {
     Addx(Addx),
     TrapV,
 }
+
 // <ea>,Dn
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct EaToDn {
@@ -95,6 +97,15 @@ pub enum ShiftCount {
     Register(DataReg),
 }
 
+impl fmt::Display for ShiftCount {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ShiftCount::Immediate(value) => write!(f, "#{}", value),
+            ShiftCount::Register(reg) => write!(f, "{reg}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct ShiftReg {
     direction: RightOrLeft,
@@ -108,11 +119,87 @@ pub enum Shift {
     Ea(ShiftEa),
     Reg(ShiftReg),
 }
+impl fmt::Display for Shift {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Shift::Ea(ShiftEa { direction, mode }) => {
+                let dir_char = match direction {
+                    RightOrLeft::Left => 'l',
+                    RightOrLeft::Right => 'r',
+                };
+                write!(f, "{}.w {}", dir_char, mode)
+            }
+            Shift::Reg(ShiftReg {
+                direction,
+                size,
+                count,
+                dst,
+            }) => {
+                let dir_char = match direction {
+                    RightOrLeft::Left => 'l',
+                    RightOrLeft::Right => 'r',
+                };
+                write!(f, "{}{size} {count}, {dst}", dir_char)
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct UnaryOp {
     size: Size,
     mode: AddressingMode,
+}
+
+impl fmt::Display for UnaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.size, self.mode)
+    }
+}
+
+impl fmt::Display for InstructionKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InstructionKind::Reset => write!(f, "reset"),
+            InstructionKind::Nop => write!(f, "nop"),
+            InstructionKind::Illegal => write!(f, "illegal"),
+            InstructionKind::Rte => write!(f, "rte"),
+            InstructionKind::Rts => write!(f, "rts"),
+            InstructionKind::Rtr => write!(f, "rtr"),
+            InstructionKind::TrapV => write!(f, "trapv"),
+            InstructionKind::Negx(unary) => write!(f, "negx {}", unary),
+            InstructionKind::Clr(unary) => write!(f, "clr {}", unary),
+            InstructionKind::Neg(unary) => write!(f, "neg {}", unary),
+            InstructionKind::Not(unary) => write!(f, "not {}", unary),
+            InstructionKind::Tas { mode } => write!(f, "tas.b {mode}"),
+            InstructionKind::Tst { size, mode } => write!(f, "tst{size} {mode}"),
+            InstructionKind::Jsr { mode } => write!(f, "jsr {mode}"),
+            InstructionKind::Jmp { mode } => write!(f, "jmp {mode}"),
+            InstructionKind::Adda {
+                addr_reg,
+                size,
+                mode,
+            } => write!(f, "adda{size} {mode}, {addr_reg}"),
+            InstructionKind::Add(add) => match add {
+                Add::EaToDn(EaToDn { size, dst, src }) => {
+                    write!(f, "add{size} {src}, {dst}")
+                }
+                Add::DnToEa(DnToEa { size, src, dst }) => {
+                    write!(f, "add{size} {src}, {dst}")
+                }
+            },
+            InstructionKind::Addx(addx) => match addx {
+                Addx::Dn(Dn { size, src, dst }) => write!(f, "addx{size} {src}, {dst}"),
+                Addx::PreDec(PreDec { size, src, dst }) => {
+                    write!(f, "addx{size} -({src}), -({dst})")
+                }
+            },
+            InstructionKind::Asd(shift) => write!(f, "as{}", shift),
+            InstructionKind::Lsd(shift) => write!(f, "ls{}", shift),
+            InstructionKind::Roxd(shift) => write!(f, "rox{}", shift),
+            InstructionKind::Rod(shift) => write!(f, "ro{}", shift),
+        }
+    }
 }
 
 #[allow(unused)]
@@ -122,6 +209,12 @@ pub struct Instruction {
     pub opcode: u16,
     pub bytes: Vec<u8>,
     pub kind: InstructionKind,
+}
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:#010x}: {}", self.address, self.kind)
+    }
 }
 
 impl Instruction {
@@ -158,6 +251,16 @@ pub enum Immediate {
     Byte(u8),
     Word(u16),
     Long(u32),
+}
+
+impl fmt::Display for Immediate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Immediate::Byte(v) => write!(f, "#0x{:02x}", v),
+            Immediate::Word(v) => write!(f, "#0x{:04x}", v),
+            Immediate::Long(v) => write!(f, "#0x{:08x}", v),
+        }
+    }
 }
 
 pub struct Decoder {
@@ -555,6 +658,48 @@ fn bit_range_u8(word: u8, start: u8, end: u8) -> u8 {
     (word >> start) & mask
 }
 
+// Formats a signed 16-bit displacement value into a hexadecimal string with a '0x' prefix.
+// Negative values are prefixed with a '-'.
+fn format_signed_hex(value: i32) -> String {
+    if value < 0 {
+        format!("-0x{:x}", -value)
+    } else {
+        format!("0x{:x}", value)
+    }
+}
+
+// Formats an index operand for M68k assembly.
+// ext_word: The extension word containing index register, size, scale, and displacement.
+fn format_index_operand(base_reg: &str, ext_word: u16) -> String {
+    let displacement = bit_range(ext_word, 0, 8) as i8 as i32;
+    let index_reg_num = bit_range(ext_word, 12, 15);
+    let is_addr_reg = bit_range(ext_word, 11, 12) == 1;
+    let index_size_bit = bit_range(ext_word, 10, 11);
+    let scale_bits = bit_range(ext_word, 9, 10);
+
+    let index_reg_str = if is_addr_reg {
+        format!("%a{}", index_reg_num)
+    } else {
+        format!("%d{}", index_reg_num)
+    };
+
+    let size_suffix = match index_size_bit {
+        0 => ".w",
+        1 => ".l",
+        _ => ".?", // Should not happen based on bit_range (1 bit)
+    };
+
+    let scale = 1 << scale_bits;
+
+    let disp_str = format_signed_hex(displacement);
+
+    if displacement == 0 {
+        format!("({base_reg},{index_reg_str}{size_suffix}*{scale})")
+    } else {
+        format!("{disp_str}({base_reg},{index_reg_str}{size_suffix}*{scale})")
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum DataReg {
     D0,
@@ -580,6 +725,25 @@ impl DataReg {
             0b111 => Ok(DataReg::D7),
             _ => bail!("Invalid bits, {:#5b}", value),
         }
+    }
+
+    fn number(self) -> u8 {
+        match self {
+            DataReg::D0 => 0,
+            DataReg::D1 => 1,
+            DataReg::D2 => 2,
+            DataReg::D3 => 3,
+            DataReg::D4 => 4,
+            DataReg::D5 => 5,
+            DataReg::D6 => 6,
+            DataReg::D7 => 7,
+        }
+    }
+}
+
+impl fmt::Display for DataReg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "%d{}", self.number())
     }
 }
 
@@ -609,6 +773,25 @@ impl AddrReg {
             _ => bail!("Invalid bits, {:#5b}", value),
         }
     }
+
+    fn number(self) -> u8 {
+        match self {
+            AddrReg::A0 => 0,
+            AddrReg::A1 => 1,
+            AddrReg::A2 => 2,
+            AddrReg::A3 => 3,
+            AddrReg::A4 => 4,
+            AddrReg::A5 => 5,
+            AddrReg::A6 => 6,
+            AddrReg::A7 => 7,
+        }
+    }
+}
+
+impl fmt::Display for AddrReg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "%a{}", self.number())
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -632,6 +815,76 @@ impl AddressingMode {
             data.to_bytes()
         } else {
             vec![]
+        }
+    }
+
+    fn short_data(&self) -> Option<u16> {
+        match self.data {
+            Some(AddressModeData::Short(value)) => Some(value),
+            Some(AddressModeData::Imm(Immediate::Word(value))) => Some(value),
+            _ => None,
+        }
+    }
+
+    fn long_data(&self) -> Option<u32> {
+        match self.data {
+            Some(AddressModeData::Long(value)) => Some(value),
+            Some(AddressModeData::Imm(Immediate::Long(value))) => Some(value),
+            _ => None,
+        }
+    }
+
+    fn immediate(&self) -> Option<Immediate> {
+        match self.data {
+            Some(AddressModeData::Imm(immediate)) => Some(immediate),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for AddressingMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.ea {
+            EffectiveAddress::Dr(reg) => write!(f, "{reg}"),
+            EffectiveAddress::Ar(reg) => write!(f, "{reg}"),
+            EffectiveAddress::Addr(reg) => write!(f, "({reg})"),
+            EffectiveAddress::AddrPostIncr(reg) => write!(f, "({reg})+"),
+            EffectiveAddress::AddrPreDecr(reg) => write!(f, "-({reg})"),
+            EffectiveAddress::AddrDisplace(reg) => {
+                let disp = self.short_data().map(|v| v as i16 as i32).unwrap_or(0);
+                write!(f, "{}({reg})", format_signed_hex(disp))
+            }
+            EffectiveAddress::AddrIndex(reg) => {
+                if let Some(ext) = self.short_data() {
+                    let base = format!("{reg}");
+                    write!(f, "{}", format_index_operand(&base, ext))
+                } else {
+                    write!(f, "({reg},<index>)")
+                }
+            }
+            EffectiveAddress::PCDisplace => {
+                let disp = self.short_data().map(|v| v as i16 as i32).unwrap_or(0);
+                write!(f, "{}(%pc)", format_signed_hex(disp))
+            }
+            EffectiveAddress::PCIndex => {
+                if let Some(ext) = self.short_data() {
+                    write!(f, "{}", format_index_operand("%pc", ext))
+                } else {
+                    write!(f, "(%pc,<index>)")
+                }
+            }
+            EffectiveAddress::AbsShort => {
+                let value = self.short_data().unwrap_or(0);
+                write!(f, "0x{value:04x}.w")
+            }
+            EffectiveAddress::AbsLong => {
+                let value = self.long_data().unwrap_or(0);
+                write!(f, "0x{value:08x}.l")
+            }
+            EffectiveAddress::Immediate => {
+                let immediate = self.immediate().unwrap_or(Immediate::Word(0)); // Default to Word(0) if immediate is missing
+                write!(f, "{immediate}")
+            }
         }
     }
 }
@@ -711,6 +964,17 @@ impl Size {
             0b10 => Ok(Size::Long),
             _ => bail!("Illegal size field"),
         }
+    }
+}
+
+impl fmt::Display for Size {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let suffix = match self {
+            Size::Byte => ".b",
+            Size::Word => ".w",
+            Size::Long => ".l",
+        };
+        f.write_str(suffix)
     }
 }
 
