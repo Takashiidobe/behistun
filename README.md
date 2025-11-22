@@ -59,3 +59,8 @@ The following instructions are currently supported by the decoder:
 - `movep`
 - `movea`
 - `move`
+
+- `ext`
+- `nbcd`
+- `swap`
+- `pea`

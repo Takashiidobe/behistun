@@ -103,6 +103,36 @@ pub enum InstructionKind {
     MoveToSr {
         src: AddressingMode,
     },
+    MoveUsp {
+        addr_reg: AddrReg,
+        direction: UspDirection,
+    },
+    Ext {
+        data_reg: DataReg,
+        mode: ExtMode,
+    },
+    Nbcd {
+        mode: AddressingMode,
+    },
+    Swap {
+        data_reg: DataReg,
+    },
+    Pea {
+        mode: AddressingMode,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum UspDirection {
+    RegToUsp, // An -> USP
+    UspToReg, // USP -> An
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum ExtMode {
+    ByteToWord, // EXT.W - sign extend byte to word
+    WordToLong, // EXT.L - sign extend word to long
+    ByteToLong, // EXTB.L - sign extend byte to long (68020+)
 }
 
 // <ea>,Dn
@@ -695,6 +725,19 @@ impl Decoder {
                 bytes.extend(src.to_bytes());
                 InstructionKind::MoveToSr { src }
             }
+            InstructionKind::MoveUsp { .. }
+            | InstructionKind::Ext { .. }
+            | InstructionKind::Swap { .. } => instr_kind,
+            InstructionKind::Nbcd { mode } => {
+                let mode = self.resolve_ea(mode, start + 2, Some(Size::Byte))?;
+                bytes.extend(mode.to_bytes());
+                InstructionKind::Nbcd { mode }
+            }
+            InstructionKind::Pea { mode } => {
+                let mode = self.resolve_ea(mode, start + 2, None)?;
+                bytes.extend(mode.to_bytes());
+                InstructionKind::Pea { mode }
+            }
         };
 
         let instruction = Instruction {
@@ -804,6 +847,46 @@ impl Decoder {
                         0b0110 => Ok(InstructionKind::MoveToSr { src: mode }),
                         _ => unreachable!(),
                     };
+                }
+                // MOVE USP: 0100 1110 0110 d aaa
+                if op_nibble == 0b1110 && mid == 0b0110 {
+                    let addr_reg = AddrReg::from_bits(ea_reg)?;
+                    let direction = if link_unlk_bit == 0 {
+                        UspDirection::RegToUsp
+                    } else {
+                        UspDirection::UspToReg
+                    };
+                    return Ok(InstructionKind::MoveUsp { addr_reg, direction });
+                }
+                // NBCD: 0100 1000 00 eeeeee
+                // SWAP: 0100 1000 01 000 rrr
+                // PEA:  0100 1000 01 eeeeee (ea_mode != 000)
+                // EXT:  0100 100 ooo 000 rrr (opmode = 010/011/111)
+                if op_nibble == 0b1000 {
+                    if size_bits == 0b00 {
+                        let mode = effective_address(ea_bits)?;
+                        return Ok(InstructionKind::Nbcd { mode });
+                    }
+                    if size_bits == 0b01 {
+                        if ea_mode == 0b000 {
+                            let data_reg = DataReg::from_bits(ea_reg)?;
+                            return Ok(InstructionKind::Swap { data_reg });
+                        } else {
+                            let mode = effective_address(ea_bits)?;
+                            return Ok(InstructionKind::Pea { mode });
+                        }
+                    }
+                }
+                // EXT: 0100 100 ooo 000 rrr (opmode = 010/011/111)
+                if top_reg == 0b100 && ea_mode == 0b000 && matches!(opmode, 0b010 | 0b011 | 0b111) {
+                    let data_reg = DataReg::from_bits(ea_reg)?;
+                    let mode = match opmode {
+                        0b010 => ExtMode::ByteToWord,
+                        0b011 => ExtMode::WordToLong,
+                        0b111 => ExtMode::ByteToLong,
+                        _ => unreachable!(),
+                    };
+                    return Ok(InstructionKind::Ext { data_reg, mode });
                 }
                 match op_nibble {
                     0b0000 | 0b0010 | 0b0100 | 0b0110 => {

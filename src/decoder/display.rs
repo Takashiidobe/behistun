@@ -1,7 +1,7 @@
 use super::{
-    AddrReg, AddressingMode, BitOp, BitOpImm, BitOpReg, DataReg, EffectiveAddress, Immediate,
-    ImmOp, Instruction, InstructionKind, Movep, MovepDirection, QuickOp, RightOrLeft, Shift,
-    ShiftCount, ShiftEa, ShiftReg, Size, Sub, Subx, UnaryOp,
+    AddrReg, AddressingMode, BitOp, BitOpImm, BitOpReg, DataReg, EffectiveAddress, ExtMode,
+    Immediate, ImmOp, Instruction, InstructionKind, Movep, MovepDirection, QuickOp, RightOrLeft,
+    Shift, ShiftCount, ShiftEa, ShiftReg, Size, Sub, Subx, UnaryOp, UspDirection,
 };
 use crate::decoder::Add;
 use std::fmt;
@@ -178,6 +178,21 @@ impl fmt::Display for InstructionKind {
             InstructionKind::MoveFromSr { dst } => write!(f, "move.w %sr, {dst}"),
             InstructionKind::MoveToCcr { src } => write!(f, "move.w {src}, %ccr"),
             InstructionKind::MoveToSr { src } => write!(f, "move.w {src}, %sr"),
+            InstructionKind::MoveUsp { addr_reg, direction } => match direction {
+                UspDirection::RegToUsp => write!(f, "move.l {addr_reg}, %usp"),
+                UspDirection::UspToReg => write!(f, "move.l %usp, {addr_reg}"),
+            },
+            InstructionKind::Ext { data_reg, mode } => {
+                let suffix = match mode {
+                    ExtMode::ByteToWord => ".w",
+                    ExtMode::WordToLong => ".l",
+                    ExtMode::ByteToLong => "b.l",
+                };
+                write!(f, "ext{suffix} {data_reg}")
+            }
+            InstructionKind::Nbcd { mode } => write!(f, "nbcd {mode}"),
+            InstructionKind::Swap { data_reg } => write!(f, "swap {data_reg}"),
+            InstructionKind::Pea { mode } => write!(f, "pea {mode}"),
         }
     }
 }
