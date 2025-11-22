@@ -103,6 +103,17 @@ pub enum InstructionKind {
         dst: AddrReg, // (Ax)+
     },
     Eor(DnToEa),
+    Mulu {
+        src: AddressingMode,
+        dst: DataReg,
+    },
+    Muls {
+        src: AddressingMode,
+        dst: DataReg,
+    },
+    Abcd(Abcd),
+    Exg(Exg),
+    And(And),
     Suba {
         addr_reg: AddrReg,
         size: Size,
@@ -252,6 +263,26 @@ pub enum Sbcd {
 
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum Or {
+    EaToDn(EaToDn),
+    DnToEa(DnToEa),
+}
+
+// ABCD is always byte-sized (like SBCD)
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum Abcd {
+    Dn { src: DataReg, dst: DataReg },
+    PreDec { src: AddrReg, dst: AddrReg },
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum Exg {
+    DataData { rx: DataReg, ry: DataReg },
+    AddrAddr { rx: AddrReg, ry: AddrReg },
+    DataAddr { data: DataReg, addr: AddrReg },
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum And {
     EaToDn(EaToDn),
     DnToEa(DnToEa),
 }
@@ -797,6 +828,30 @@ impl Decoder {
                 bytes.extend(dst.to_bytes());
                 InstructionKind::Eor(DnToEa { size, src, dst })
             }
+            InstructionKind::Mulu { src, dst } => {
+                let src = self.resolve_ea(src, start + 2, Some(Size::Word))?;
+                bytes.extend(src.to_bytes());
+                InstructionKind::Mulu { src, dst }
+            }
+            InstructionKind::Muls { src, dst } => {
+                let src = self.resolve_ea(src, start + 2, Some(Size::Word))?;
+                bytes.extend(src.to_bytes());
+                InstructionKind::Muls { src, dst }
+            }
+            InstructionKind::Abcd(_) => instr_kind,
+            InstructionKind::Exg(_) => instr_kind,
+            InstructionKind::And(and) => match and {
+                And::EaToDn(EaToDn { size, dst, src }) => {
+                    let src = self.resolve_ea(src, start + 2, Some(size))?;
+                    bytes.extend(src.to_bytes());
+                    InstructionKind::And(And::EaToDn(EaToDn { size, src, dst }))
+                }
+                And::DnToEa(DnToEa { size, src, dst }) => {
+                    let dst = self.resolve_ea(dst, start + 2, Some(size))?;
+                    bytes.extend(dst.to_bytes());
+                    InstructionKind::And(And::DnToEa(DnToEa { size, src, dst }))
+                }
+            },
             InstructionKind::Suba {
                 addr_reg,
                 size,
@@ -1477,6 +1532,87 @@ impl Decoder {
                         })),
                     },
                     _ => bail!("Unsupported group 11 opmode: {:#05b}", opmode),
+                }
+            }
+            // AND/MULU/MULS/ABCD/EXG: 1100 rrr ooo eeeeee
+            0b1100 => {
+                match opmode {
+                    // AND <ea>,Dn: opmode 000-010
+                    0b000..=0b010 => Ok(InstructionKind::And(And::EaToDn(EaToDn {
+                        size: Size::from_size_bits(size_bits)?,
+                        dst: DataReg::from_bits(top_reg)?,
+                        src: effective_address(ea_bits)?,
+                    }))),
+                    // MULU <ea>,Dn: opmode 011
+                    0b011 => Ok(InstructionKind::Mulu {
+                        src: effective_address(ea_bits)?,
+                        dst: DataReg::from_bits(top_reg)?,
+                    }),
+                    // ABCD/EXG/AND Dn,<ea>: opmode 100
+                    0b100 => match ea_mode {
+                        // ABCD Dy,Dx
+                        0b000 => Ok(InstructionKind::Abcd(Abcd::Dn {
+                            src: DataReg::from_bits(ea_reg)?,
+                            dst: DataReg::from_bits(top_reg)?,
+                        })),
+                        // ABCD -(Ay),-(Ax)
+                        0b001 => Ok(InstructionKind::Abcd(Abcd::PreDec {
+                            src: AddrReg::from_bits(ea_reg)?,
+                            dst: AddrReg::from_bits(top_reg)?,
+                        })),
+                        // AND Dn,<ea>
+                        _ => Ok(InstructionKind::And(And::DnToEa(DnToEa {
+                            size: Size::Byte,
+                            src: DataReg::from_bits(top_reg)?,
+                            dst: effective_address(ea_bits)?,
+                        }))),
+                    },
+                    // EXG/AND Dn,<ea>: opmode 101
+                    0b101 => {
+                        // EXG Dx,Dy: 1100 xxx 101000 yyy
+                        if ea_mode == 0b000 {
+                            Ok(InstructionKind::Exg(Exg::DataData {
+                                rx: DataReg::from_bits(top_reg)?,
+                                ry: DataReg::from_bits(ea_reg)?,
+                            }))
+                        // EXG Ax,Ay: 1100 xxx 101001 yyy
+                        } else if ea_mode == 0b001 {
+                            Ok(InstructionKind::Exg(Exg::AddrAddr {
+                                rx: AddrReg::from_bits(top_reg)?,
+                                ry: AddrReg::from_bits(ea_reg)?,
+                            }))
+                        } else {
+                            // AND Dn,<ea>
+                            Ok(InstructionKind::And(And::DnToEa(DnToEa {
+                                size: Size::Word,
+                                src: DataReg::from_bits(top_reg)?,
+                                dst: effective_address(ea_bits)?,
+                            })))
+                        }
+                    }
+                    // EXG/AND Dn,<ea>: opmode 110
+                    0b110 => {
+                        // EXG Dx,Ay: 1100 xxx 110001 yyy
+                        if ea_mode == 0b001 {
+                            Ok(InstructionKind::Exg(Exg::DataAddr {
+                                data: DataReg::from_bits(top_reg)?,
+                                addr: AddrReg::from_bits(ea_reg)?,
+                            }))
+                        } else {
+                            // AND Dn,<ea>
+                            Ok(InstructionKind::And(And::DnToEa(DnToEa {
+                                size: Size::Long,
+                                src: DataReg::from_bits(top_reg)?,
+                                dst: effective_address(ea_bits)?,
+                            })))
+                        }
+                    }
+                    // MULS <ea>,Dn: opmode 111
+                    0b111 => Ok(InstructionKind::Muls {
+                        src: effective_address(ea_bits)?,
+                        dst: DataReg::from_bits(top_reg)?,
+                    }),
+                    _ => bail!("Unsupported group 12 opmode: {:#05b}", opmode),
                 }
             }
             // Bcc/BRA/BSR: 0110 cccc dddddddd

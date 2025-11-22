@@ -1,5 +1,22 @@
 .globl _start
 _start:
+  mulu.w %d0, %d1
+  mulu.w (%a0), %d2
+  mulu.w #100, %d3
+  muls.w %d4, %d5
+  muls.w (%a1), %d6
+  muls.w 0x1000.w, %d7
+  abcd %d0, %d1
+  abcd -(%a0), -(%a1)
+  exg %d0, %d1
+  exg %a0, %a1
+  exg %d2, %a2
+  and.b %d0, %d1
+  and.w (%a0), %d2
+  and.l #0x12345678, %d3
+  and.b %d4, (%a2)
+  and.w %d5, 0x2000.w
+  and.l %d6, (%a3)+
   cmp.b %d0, %d1
   cmp.w (%a0), %d2
   cmp.l 0x1000.w, %d3

@@ -88,3 +88,9 @@ The following instructions are currently supported by the decoder:
 - `cmpm`
 - `cmp`
 - `cmpa`
+
+- `mulu`
+- `muls` 
+- `abcd` 
+- `exg` 
+- `and`

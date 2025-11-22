@@ -1,6 +1,6 @@
 use super::{
-    AddrReg, AddressingMode, BitOp, BitOpImm, BitOpReg, Condition, DataDir, DataReg,
-    EffectiveAddress, ExtMode, Immediate, ImmOp, Instruction, InstructionKind, Movem, Movep,
+    Abcd, AddrReg, AddressingMode, And, BitOp, BitOpImm, BitOpReg, Condition, DataDir, DataReg,
+    EffectiveAddress, Exg, ExtMode, Immediate, ImmOp, Instruction, InstructionKind, Movem, Movep,
     MovepDirection, Or, QuickOp, RightOrLeft, Sbcd, Shift, ShiftCount, ShiftEa, ShiftReg, Size,
     Sub, Subx, UnaryOp, UspDirection,
 };
@@ -294,6 +294,29 @@ impl fmt::Display for InstructionKind {
             InstructionKind::Eor(super::DnToEa { size, src, dst }) => {
                 write!(f, "eor{size} {src}, {dst}")
             }
+            InstructionKind::Mulu { src, dst } => {
+                write!(f, "mulu.w {}, {}", src, dst)
+            }
+            InstructionKind::Muls { src, dst } => {
+                write!(f, "muls.w {}, {}", src, dst)
+            }
+            InstructionKind::Abcd(abcd) => match abcd {
+                Abcd::Dn { src, dst } => write!(f, "abcd {}, {}", src, dst),
+                Abcd::PreDec { src, dst } => write!(f, "abcd -({src}), -({dst})"),
+            },
+            InstructionKind::Exg(exg) => match exg {
+                Exg::DataData { rx, ry } => write!(f, "exg {rx}, {ry}"),
+                Exg::AddrAddr { rx, ry } => write!(f, "exg {rx}, {ry}"),
+                Exg::DataAddr { data, addr } => write!(f, "exg {data}, {addr}"),
+            },
+            InstructionKind::And(and) => match and {
+                And::EaToDn(super::EaToDn { size, dst, src }) => {
+                    write!(f, "and{size} {src}, {dst}")
+                }
+                And::DnToEa(super::DnToEa { size, src, dst }) => {
+                    write!(f, "and{size} {src}, {dst}")
+                }
+            },
             InstructionKind::Suba {
                 addr_reg,
                 size,
