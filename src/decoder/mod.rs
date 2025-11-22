@@ -58,6 +58,10 @@ pub enum InstructionKind {
     Bset(BitOp),
     Addq(QuickOp),
     Subq(QuickOp),
+    Moveq {
+        data: i8,
+        dst: DataReg,
+    },
     Suba {
         addr_reg: AddrReg,
         size: Size,
@@ -629,6 +633,7 @@ impl Decoder {
                 let quick_op = self.resolve_quick_op(quick_op, start, &mut bytes)?;
                 InstructionKind::Subq(quick_op)
             }
+            InstructionKind::Moveq { .. } => instr_kind,
             InstructionKind::Suba {
                 addr_reg,
                 size,
@@ -1214,6 +1219,16 @@ impl Decoder {
                     },
                     _ => bail!("Unsupported opmode: {:#05b}", opmode),
                 }
+            }
+            // MOVEQ: 0111 rrr 0 dddddddd
+            0b0111 => {
+                // Bit 8 must be 0 for MOVEQ
+                if eight_nine == 0 {
+                    let dst = DataReg::from_bits(top_reg)?;
+                    let data = (opcode & 0xFF) as i8;
+                    return Ok(InstructionKind::Moveq { data, dst });
+                }
+                bail!("Unsupported group 7 instruction");
             }
             // MOVE/MOVEA: 00ss ddd mmm sss nnn
             // size encoding: 01=byte, 11=word, 10=long (different from normal!)

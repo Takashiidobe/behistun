@@ -213,6 +213,9 @@ impl fmt::Display for InstructionKind {
             InstructionKind::Bset(bit_op) => write!(f, "bset {}", bit_op),
             InstructionKind::Addq(quick_op) => write!(f, "addq{}", quick_op),
             InstructionKind::Subq(quick_op) => write!(f, "subq{}", quick_op),
+            InstructionKind::Moveq { data, dst } => {
+                write!(f, "moveq #{}, {}", data, dst)
+            }
             InstructionKind::Suba {
                 addr_reg,
                 size,

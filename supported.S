@@ -1,5 +1,16 @@
 .globl _start
 _start:
+  addq.b #1, %d0
+  addq.w #3, %a1
+  addq.l #8, (%a0)
+  addq.w #5, 0x1000.w
+  subq.b #2, %d1
+  subq.w #4, %a2
+  subq.l #7, (%a3)+
+  moveq #0, %d0
+  moveq #127, %d1
+  moveq #-1, %d2
+  moveq #-128, %d3
   lea (%a0), %a1
   lea 0x10(%a2), %a3
   lea 0x1234.w, %a4

@@ -68,3 +68,7 @@ The following instructions are currently supported by the decoder:
 - `movem`
 - `lea`
 - `chk`
+
+- `addq`
+- `subq`
+- `moveq`
