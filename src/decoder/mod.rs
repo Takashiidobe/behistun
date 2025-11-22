@@ -58,6 +58,13 @@ pub enum InstructionKind {
     Bset(BitOp),
     Addq(QuickOp),
     Subq(QuickOp),
+    Suba {
+        addr_reg: AddrReg,
+        size: Size,
+        mode: AddressingMode,
+    },
+    Sub(Sub),
+    Subx(Subx),
 }
 
 // <ea>,Dn
@@ -97,6 +104,18 @@ pub struct PreDec {
 
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum Addx {
+    Dn(Dn),
+    PreDec(PreDec),
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum Sub {
+    EaToDn(EaToDn),
+    DnToEa(DnToEa),
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum Subx {
     Dn(Dn),
     PreDec(PreDec),
 }
@@ -473,6 +492,32 @@ impl Decoder {
                 let quick_op = self.resolve_quick_op(quick_op, start, &mut bytes)?;
                 InstructionKind::Subq(quick_op)
             }
+            InstructionKind::Suba {
+                addr_reg,
+                size,
+                mode,
+            } => {
+                let mode = self.resolve_ea(mode, start + 2, None)?;
+                bytes.extend(mode.to_bytes());
+                InstructionKind::Suba {
+                    addr_reg,
+                    size,
+                    mode,
+                }
+            }
+            InstructionKind::Sub(sub) => match sub {
+                Sub::EaToDn(EaToDn { size, dst, src }) => {
+                    let src = self.resolve_ea(src, start + 2, None)?;
+                    bytes.extend(src.to_bytes());
+                    InstructionKind::Sub(Sub::EaToDn(EaToDn { size, src, dst }))
+                }
+                Sub::DnToEa(DnToEa { size, src, dst }) => {
+                    let dst = self.resolve_ea(dst, start + 2, None)?;
+                    bytes.extend(dst.to_bytes());
+                    InstructionKind::Sub(Sub::DnToEa(DnToEa { size, src, dst }))
+                }
+            },
+            InstructionKind::Subx(_) => instr_kind,
         };
 
         let instruction = Instruction {
@@ -647,8 +692,8 @@ impl Decoder {
                         // Addx Dn, Dn
                         0b000 => Ok(InstructionKind::Addx(Addx::Dn(Dn {
                             size: Size::from_size_bits(size_bits)?,
-                            src: DataReg::from_bits(top_reg)?,
-                            dst: DataReg::from_bits(ea_reg)?,
+                            src: DataReg::from_bits(ea_reg)?,
+                            dst: DataReg::from_bits(top_reg)?,
                         }))),
                         // Addx -(An), -(An)
                         0b001 => Ok(InstructionKind::Addx(Addx::PreDec(PreDec {
@@ -707,6 +752,44 @@ impl Decoder {
                     0 => Ok(InstructionKind::Addq(quick_op)),
                     1 => Ok(InstructionKind::Subq(quick_op)),
                     _ => unreachable!(),
+                }
+            }
+            0b1001 => {
+                // Sub/Subx/Suba
+                match opmode {
+                    // Suba <ea>,An
+                    0b011 | 0b111 => Ok(InstructionKind::Suba {
+                        addr_reg: AddrReg::from_bits(top_reg)?,
+                        size: Size::from_wl_bit(eight_nine)?,
+                        mode: effective_address(ea_bits)?,
+                    }),
+                    // Sub <ea>, Dn
+                    0b000..=0b010 => Ok(InstructionKind::Sub(Sub::EaToDn(EaToDn {
+                        size: Size::from_size_bits(size_bits)?,
+                        dst: DataReg::from_bits(top_reg)?,
+                        src: effective_address(ea_bits)?,
+                    }))),
+                    0b100..=0b110 => match ea_mode {
+                        // Subx Dn, Dn
+                        0b000 => Ok(InstructionKind::Subx(Subx::Dn(Dn {
+                            size: Size::from_size_bits(size_bits)?,
+                            src: DataReg::from_bits(ea_reg)?,
+                            dst: DataReg::from_bits(top_reg)?,
+                        }))),
+                        // Subx -(An), -(An)
+                        0b001 => Ok(InstructionKind::Subx(Subx::PreDec(PreDec {
+                            size: Size::from_size_bits(size_bits)?,
+                            src: AddrReg::from_bits(ea_reg)?,
+                            dst: AddrReg::from_bits(top_reg)?,
+                        }))),
+                        // Sub Dn,<ea>
+                        _ => Ok(InstructionKind::Sub(Sub::DnToEa(DnToEa {
+                            size: Size::from_size_bits(size_bits)?,
+                            src: DataReg::from_bits(top_reg)?,
+                            dst: effective_address(ea_bits)?,
+                        }))),
+                    },
+                    _ => bail!("Unsupported opmode: {:#05b}", opmode),
                 }
             }
             _ => bail!("Unsupported group: {:#06b}", group),

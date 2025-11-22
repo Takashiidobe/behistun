@@ -42,3 +42,7 @@ The following instructions are currently supported by the decoder:
 - `bchg`
 - `bclr`
 - `bset`
+
+- `sub`
+- `suba`
+- `subx`

@@ -1,7 +1,7 @@
 use super::{
     AddrReg, AddressingMode, BitOp, BitOpImm, BitOpReg, DataReg, EffectiveAddress, Immediate,
     Instruction, InstructionKind, QuickOp, RightOrLeft, Shift, ShiftCount, ShiftEa, ShiftReg, Size,
-    UnaryOp,
+    Sub, Subx, UnaryOp,
 };
 use crate::decoder::Add;
 use std::fmt;
@@ -121,6 +121,27 @@ impl fmt::Display for InstructionKind {
             InstructionKind::Bset(bit_op) => write!(f, "bset {}", bit_op),
             InstructionKind::Addq(quick_op) => write!(f, "addq{}", quick_op),
             InstructionKind::Subq(quick_op) => write!(f, "subq{}", quick_op),
+            InstructionKind::Suba {
+                addr_reg,
+                size,
+                mode,
+            } => write!(f, "suba{size} {mode}, {addr_reg}"),
+            InstructionKind::Sub(sub) => match sub {
+                Sub::EaToDn(super::EaToDn { size, dst, src }) => {
+                    write!(f, "sub{size} {src}, {dst}")
+                }
+                Sub::DnToEa(super::DnToEa { size, src, dst }) => {
+                    write!(f, "sub{size} {src}, {dst}")
+                }
+            },
+            InstructionKind::Subx(subx) => match subx {
+                Subx::Dn(super::Dn { size, src, dst }) => {
+                    write!(f, "subx{size} {src}, {dst}")
+                }
+                Subx::PreDec(super::PreDec { size, src, dst }) => {
+                    write!(f, "subx{size} -({src}), -({dst})")
+                }
+            },
         }
     }
 }

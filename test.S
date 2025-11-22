@@ -1,11 +1,18 @@
 .globl _start
 _start:
-	addq.b #1, %d0
-	addq.w #4, (%a0)
-	addq.l #8, 8(%a1)
-	subq.b #3, %d1
-	subq.w #7, (%a2)
-	subq.l #2, %a3
+	sub.w %d1, %d2
+	sub.l (%a0), %d3
+	sub.b %d5, (%a0)
+	subx.w %d1, %d2
+	subx.l %d0, %d3
+	suba.w (%a0), %a2
+	suba.l (%a1), %a2
+	| addq.b #1, %d0
+	| addq.w #4, (%a0)
+	| addq.l #8, 8(%a1)
+	| subq.b #3, %d1
+	| subq.w #7, (%a2)
+	| subq.l #2, %a3
 	| bchg #3, (%a0)
 	| bclr #4, (%a0)
 	| btst #7, %d0
