@@ -56,6 +56,8 @@ pub enum InstructionKind {
     Bchg(BitOp),
     Bclr(BitOp),
     Bset(BitOp),
+    Addq(QuickOp),
+    Subq(QuickOp),
 }
 
 // <ea>,Dn
@@ -147,6 +149,13 @@ pub struct BitOpImm {
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct BitOpReg {
     pub bit_reg: DataReg,
+    pub mode: AddressingMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub struct QuickOp {
+    pub data: u8,
+    pub size: Size,
     pub mode: AddressingMode,
 }
 
@@ -307,22 +316,34 @@ impl Decoder {
     fn resolve_bit_op(&self, bit_op: BitOp, start: usize, bytes: &mut Vec<u8>) -> Result<BitOp> {
         match bit_op {
             BitOp::Imm(BitOpImm { mode, .. }) => {
-                // Read bit number from extension word (low byte)
                 let bit_word = self.memory.read_word(start + 2)?;
                 bytes.extend(bit_word.to_be_bytes());
                 let bit_num = (bit_word & 0xFF) as u8;
-                // Resolve EA, which starts after the bit number word
                 let mode = self.resolve_ea(mode, start + 4, Some(Size::Byte))?;
                 bytes.extend(mode.to_bytes());
                 Ok(BitOp::Imm(BitOpImm { bit_num, mode }))
             }
             BitOp::Reg(BitOpReg { bit_reg, mode }) => {
-                // No extension word for bit number, just resolve EA
                 let mode = self.resolve_ea(mode, start + 2, Some(Size::Byte))?;
                 bytes.extend(mode.to_bytes());
                 Ok(BitOp::Reg(BitOpReg { bit_reg, mode }))
             }
         }
+    }
+
+    fn resolve_quick_op(
+        &self,
+        quick_op: QuickOp,
+        start: usize,
+        bytes: &mut Vec<u8>,
+    ) -> Result<QuickOp> {
+        let mode = self.resolve_ea(quick_op.mode, start + 2, Some(quick_op.size))?;
+        bytes.extend(mode.to_bytes());
+        Ok(QuickOp {
+            data: quick_op.data,
+            size: quick_op.size,
+            mode,
+        })
     }
 
     fn decode_instruction(&self, start: usize) -> Result<Instruction> {
@@ -443,6 +464,14 @@ impl Decoder {
             InstructionKind::Bset(bit_op) => {
                 let bit_op = self.resolve_bit_op(bit_op, start, &mut bytes)?;
                 InstructionKind::Bset(bit_op)
+            }
+            InstructionKind::Addq(quick_op) => {
+                let quick_op = self.resolve_quick_op(quick_op, start, &mut bytes)?;
+                InstructionKind::Addq(quick_op)
+            }
+            InstructionKind::Subq(quick_op) => {
+                let quick_op = self.resolve_quick_op(quick_op, start, &mut bytes)?;
+                InstructionKind::Subq(quick_op)
             }
         };
 
@@ -664,6 +693,21 @@ impl Decoder {
                     };
                 }
                 bail!("Unsupported group 0 instruction");
+            }
+            0b0101 => {
+                // Addq/Subq: Dn Size EA
+                let data = match top_reg {
+                    0 => 8,
+                    n => n,
+                };
+                let size = Size::from_size_bits(size_bits)?;
+                let mode = effective_address(ea_bits)?;
+                let quick_op = QuickOp { data, size, mode };
+                match eight_nine {
+                    0 => Ok(InstructionKind::Addq(quick_op)),
+                    1 => Ok(InstructionKind::Subq(quick_op)),
+                    _ => unreachable!(),
+                }
             }
             _ => bail!("Unsupported group: {:#06b}", group),
         }

@@ -1,13 +1,19 @@
 .globl _start
 _start:
-	bchg #3, (%a0)
-	bclr #4, (%a0)
-	btst #7, %d0
-	bset #0, 8(%a1)
-	bchg %d0, %d1
-	bclr %d1, (%a0)
-	bset %d2, 8(%a0)
-	btst %d3, %d4
+	addq.b #1, %d0
+	addq.w #4, (%a0)
+	addq.l #8, 8(%a1)
+	subq.b #3, %d1
+	subq.w #7, (%a2)
+	subq.l #2, %a3
+	| bchg #3, (%a0)
+	| bclr #4, (%a0)
+	| btst #7, %d0
+	| bset #0, 8(%a1)
+	| bchg %d0, %d1
+	| bclr %d1, (%a0)
+	| bset %d2, 8(%a0)
+	| btst %d3, %d4
 	| trap #10
 	| link.w %a6, #-12
 	| unlk %a0
