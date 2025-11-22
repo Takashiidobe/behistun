@@ -155,6 +155,9 @@ impl fmt::Display for InstructionKind {
             InstructionKind::Cmpi(imm_op) => write!(f, "cmpi{}", imm_op),
             InstructionKind::EoriToCcr { imm } => write!(f, "eori #0x{:02x}, %ccr", imm),
             InstructionKind::EoriToSr { imm } => write!(f, "eori #0x{:04x}, %sr", imm),
+            InstructionKind::Ori(imm_op) => write!(f, "ori{}", imm_op),
+            InstructionKind::OriToCcr { imm } => write!(f, "ori #0x{:02x}, %ccr", imm),
+            InstructionKind::OriToSr { imm } => write!(f, "ori #0x{:04x}, %sr", imm),
         }
     }
 }

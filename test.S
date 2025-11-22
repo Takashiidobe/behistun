@@ -1,13 +1,18 @@
 .globl _start
 _start:
-	eori #0x1f, %ccr
-	eori #0x2700, %sr
-	eori.b #0xaa, %d0
-	eori.w #0x5555, (%a0)
-	eori.l #0x12345678, %d1
-	cmpi.b #10, %d0
-	cmpi.w #0x1000, (%a1)
-	cmpi.l #0xdeadbeef, %d2
+	ori #0x10, %ccr
+	ori #0x0700, %sr
+	ori.b #0x80, %d0
+	ori.w #0xf0f0, (%a0)
+	ori.l #0xaabbccdd, %d1
+	| eori #0x1f, %ccr
+	| eori #0x2700, %sr
+	| eori.b #0xaa, %d0
+	| eori.w #0x5555, (%a0)
+	| eori.l #0x12345678, %d1
+	| cmpi.b #10, %d0
+	| cmpi.w #0x1000, (%a1)
+	| cmpi.l #0xdeadbeef, %d2
 	| andi.b #0x0f, %d0
 	| andi.w #0x1234, (%a0)
 	| andi.l #0x12345678, %d1

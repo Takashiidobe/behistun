@@ -76,6 +76,13 @@ pub enum InstructionKind {
     EoriToSr {
         imm: u16,
     },
+    Ori(ImmOp),
+    OriToCcr {
+        imm: u8,
+    },
+    OriToSr {
+        imm: u16,
+    },
 }
 
 // <ea>,Dn
@@ -595,6 +602,20 @@ impl Decoder {
                 bytes.extend(word.to_be_bytes());
                 InstructionKind::EoriToSr { imm: word }
             }
+            InstructionKind::Ori(imm_op) => {
+                let imm_op = self.resolve_imm_op(imm_op, start, &mut bytes)?;
+                InstructionKind::Ori(imm_op)
+            }
+            InstructionKind::OriToCcr { .. } => {
+                let word = self.memory.read_word(start + 2)?;
+                bytes.extend(word.to_be_bytes());
+                InstructionKind::OriToCcr { imm: word as u8 }
+            }
+            InstructionKind::OriToSr { .. } => {
+                let word = self.memory.read_word(start + 2)?;
+                bytes.extend(word.to_be_bytes());
+                InstructionKind::OriToSr { imm: word }
+            }
         };
 
         let instruction = Instruction {
@@ -797,6 +818,14 @@ impl Decoder {
                 if opcode == 0x0A7C {
                     return Ok(InstructionKind::EoriToSr { imm: 0 });
                 }
+                // ORI to CCR: 0000 0000 0011 1100 (0x003C)
+                if opcode == 0x003C {
+                    return Ok(InstructionKind::OriToCcr { imm: 0 });
+                }
+                // ORI to SR: 0000 0000 0111 1100 (0x007C)
+                if opcode == 0x007C {
+                    return Ok(InstructionKind::OriToSr { imm: 0 });
+                }
                 // Btst/Bchg/Bclr/Bset #imm
                 if op_nibble == 0b1000 {
                     let mode = effective_address(ea_bits)?;
@@ -822,9 +851,9 @@ impl Decoder {
                         _ => unreachable!(),
                     };
                 }
-                // Andi/Subi/Addi/Eori/Cmpi #imm, <ea>
-                // 0000 oooo ss eeeeee (oooo: 0010=ANDI, 0100=SUBI, 0110=ADDI, 1010=EORI, 1100=CMPI)
-                if matches!(op_nibble, 0b0010 | 0b0100 | 0b0110 | 0b1010 | 0b1100) {
+                // Ori/Andi/Subi/Addi/Eori/Cmpi #imm, <ea>
+                // 0000 oooo ss eeeeee (oooo: 0000=ORI, 0010=ANDI, 0100=SUBI, 0110=ADDI, 1010=EORI, 1100=CMPI)
+                if matches!(op_nibble, 0b0000 | 0b0010 | 0b0100 | 0b0110 | 0b1010 | 0b1100) {
                     let size = Size::from_size_bits(size_bits)?;
                     let mode = effective_address(ea_bits)?;
                     // Immediate value will be read during resolve
@@ -834,6 +863,7 @@ impl Decoder {
                         mode,
                     };
                     return match op_nibble {
+                        0b0000 => Ok(InstructionKind::Ori(imm_op)),
                         0b0010 => Ok(InstructionKind::Andi(imm_op)),
                         0b0100 => Ok(InstructionKind::Subi(imm_op)),
                         0b0110 => Ok(InstructionKind::Addi(imm_op)),

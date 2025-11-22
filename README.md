@@ -53,3 +53,5 @@ The following instructions are currently supported by the decoder:
 
 - `eori`
 - `cmpi`
+
+- `ori`
