@@ -62,6 +62,25 @@ pub enum InstructionKind {
         data: i8,
         dst: DataReg,
     },
+    Scc {
+        condition: Condition,
+        mode: AddressingMode,
+    },
+    DBcc {
+        condition: Condition,
+        data_reg: DataReg,
+        displacement: i16,
+    },
+    Bra {
+        displacement: i32,
+    },
+    Bsr {
+        displacement: i32,
+    },
+    Bcc {
+        condition: Condition,
+        displacement: i32,
+    },
     Suba {
         addr_reg: AddrReg,
         size: Size,
@@ -506,6 +525,32 @@ impl Decoder {
         })
     }
 
+    fn resolve_branch_displacement(
+        &self,
+        disp_byte: i32,
+        start: usize,
+        bytes: &mut Vec<u8>,
+    ) -> Result<i32> {
+        match disp_byte {
+            0 => {
+                // 16-bit displacement follows
+                let word = self.memory.read_word(start + 2)?;
+                bytes.extend(word.to_be_bytes());
+                Ok(word as i16 as i32)
+            }
+            -1 => {
+                // 32-bit displacement follows (68020+)
+                let long = self.memory.read_long(start + 2)?;
+                bytes.extend(long.to_be_bytes());
+                Ok(long as i32)
+            }
+            _ => {
+                // 8-bit displacement is in the opcode
+                Ok(disp_byte)
+            }
+        }
+    }
+
     fn decode_instruction(&self, start: usize) -> Result<Instruction> {
         let opcode = self.memory.read_word(start)?;
         let instr_kind = Self::get_op_kind(opcode)?;
@@ -634,6 +679,42 @@ impl Decoder {
                 InstructionKind::Subq(quick_op)
             }
             InstructionKind::Moveq { .. } => instr_kind,
+            InstructionKind::Scc { condition, mode } => {
+                let mode = self.resolve_ea(mode, start + 2, Some(Size::Byte))?;
+                bytes.extend(mode.to_bytes());
+                InstructionKind::Scc { condition, mode }
+            }
+            InstructionKind::DBcc {
+                condition,
+                data_reg,
+                ..
+            } => {
+                let disp_word = self.memory.read_word(start + 2)?;
+                bytes.extend(disp_word.to_be_bytes());
+                InstructionKind::DBcc {
+                    condition,
+                    data_reg,
+                    displacement: disp_word as i16,
+                }
+            }
+            InstructionKind::Bra { displacement } => {
+                let displacement = self.resolve_branch_displacement(displacement, start, &mut bytes)?;
+                InstructionKind::Bra { displacement }
+            }
+            InstructionKind::Bsr { displacement } => {
+                let displacement = self.resolve_branch_displacement(displacement, start, &mut bytes)?;
+                InstructionKind::Bsr { displacement }
+            }
+            InstructionKind::Bcc {
+                condition,
+                displacement,
+            } => {
+                let displacement = self.resolve_branch_displacement(displacement, start, &mut bytes)?;
+                InstructionKind::Bcc {
+                    condition,
+                    displacement,
+                }
+            }
             InstructionKind::Suba {
                 addr_reg,
                 size,
@@ -1168,7 +1249,23 @@ impl Decoder {
                 bail!("Unsupported group 0 instruction");
             }
             0b0101 => {
-                // Addq/Subq: Dn Size EA
+                // Scc/DBcc when size_bits == 11
+                if size_bits == 0b11 {
+                    let condition = Condition::from(op_nibble);
+                    // DBcc: 0101 cccc 11 001 rrr
+                    if ea_mode == 0b001 {
+                        let data_reg = DataReg::from_bits(ea_reg)?;
+                        return Ok(InstructionKind::DBcc {
+                            condition,
+                            data_reg,
+                            displacement: 0, // resolved later
+                        });
+                    }
+                    // Scc: 0101 cccc 11 eeeeee
+                    let mode = effective_address(ea_bits)?;
+                    return Ok(InstructionKind::Scc { condition, mode });
+                }
+                // Addq/Subq: 0101 ddd ss eeeeee (ss != 11)
                 let data = match top_reg {
                     0 => 8,
                     n => n,
@@ -1218,6 +1315,32 @@ impl Decoder {
                         }))),
                     },
                     _ => bail!("Unsupported opmode: {:#05b}", opmode),
+                }
+            }
+            // Bcc/BRA/BSR: 0110 cccc dddddddd
+            0b0110 => {
+                let condition = Condition::from(op_nibble);
+                let disp_byte = (opcode & 0xFF) as i8 as i32;
+                match condition {
+                    Condition::True => {
+                        // BRA
+                        return Ok(InstructionKind::Bra {
+                            displacement: disp_byte, // resolved later if 0 or -1
+                        });
+                    }
+                    Condition::False => {
+                        // BSR
+                        return Ok(InstructionKind::Bsr {
+                            displacement: disp_byte, // resolved later if 0 or -1
+                        });
+                    }
+                    _ => {
+                        // Bcc
+                        return Ok(InstructionKind::Bcc {
+                            condition,
+                            displacement: disp_byte, // resolved later if 0 or -1
+                        });
+                    }
                 }
             }
             // MOVEQ: 0111 rrr 0 dddddddd
@@ -1488,8 +1611,7 @@ impl Size {
     }
 }
 
-#[allow(unused)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Condition {
     True,           // T   b0000
     False,          // F   b0001

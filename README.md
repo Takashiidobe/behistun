@@ -72,3 +72,10 @@ The following instructions are currently supported by the decoder:
 - `addq`
 - `subq`
 - `moveq`
+
+- `scc`
+- `dbcc`
+- `bra`
+- `bsr`
+- `bcc`
+

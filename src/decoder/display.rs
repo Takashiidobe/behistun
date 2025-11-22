@@ -1,11 +1,35 @@
 use super::{
-    AddrReg, AddressingMode, BitOp, BitOpImm, BitOpReg, DataDir, DataReg, EffectiveAddress,
-    ExtMode, Immediate, ImmOp, Instruction, InstructionKind, Movem, Movep, MovepDirection,
-    QuickOp, RightOrLeft, Shift, ShiftCount, ShiftEa, ShiftReg, Size, Sub, Subx, UnaryOp,
-    UspDirection,
+    AddrReg, AddressingMode, BitOp, BitOpImm, BitOpReg, Condition, DataDir, DataReg,
+    EffectiveAddress, ExtMode, Immediate, ImmOp, Instruction, InstructionKind, Movem, Movep,
+    MovepDirection, QuickOp, RightOrLeft, Shift, ShiftCount, ShiftEa, ShiftReg, Size, Sub, Subx,
+    UnaryOp, UspDirection,
 };
 use crate::decoder::Add;
 use std::fmt;
+
+impl fmt::Display for Condition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Condition::True => "t",
+            Condition::False => "f",
+            Condition::Higher => "hi",
+            Condition::LowerOrSame => "ls",
+            Condition::CarryClear => "cc",
+            Condition::CarrySet => "cs",
+            Condition::NotEqual => "ne",
+            Condition::Equal => "eq",
+            Condition::OverflowClear => "vc",
+            Condition::OverflowSet => "vs",
+            Condition::Plus => "pl",
+            Condition::Minus => "mi",
+            Condition::GreaterOrEqual => "ge",
+            Condition::LessThan => "lt",
+            Condition::GreaterThan => "gt",
+            Condition::LessOrEqual => "le",
+        };
+        f.write_str(s)
+    }
+}
 
 impl fmt::Display for ShiftCount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -215,6 +239,28 @@ impl fmt::Display for InstructionKind {
             InstructionKind::Subq(quick_op) => write!(f, "subq{}", quick_op),
             InstructionKind::Moveq { data, dst } => {
                 write!(f, "moveq #{}, {}", data, dst)
+            }
+            InstructionKind::Scc { condition, mode } => {
+                write!(f, "s{} {}", condition, mode)
+            }
+            InstructionKind::DBcc {
+                condition,
+                data_reg,
+                displacement,
+            } => {
+                write!(f, "db{} {}, {}", condition, data_reg, format_signed_hex(*displacement as i32))
+            }
+            InstructionKind::Bra { displacement } => {
+                write!(f, "bra {}", format_signed_hex(*displacement))
+            }
+            InstructionKind::Bsr { displacement } => {
+                write!(f, "bsr {}", format_signed_hex(*displacement))
+            }
+            InstructionKind::Bcc {
+                condition,
+                displacement,
+            } => {
+                write!(f, "b{} {}", condition, format_signed_hex(*displacement))
             }
             InstructionKind::Suba {
                 addr_reg,

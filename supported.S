@@ -1,5 +1,25 @@
 .globl _start
 _start:
+  st %d0
+  sf %d1
+  shi (%a0)
+  sls 0x1000.w
+  seq %d2
+  sne %d3
+  dbt %d0, .+10
+  dbf %d1, .-20
+  dbeq %d2, .+100
+  dbne %d3, .-50
+  bra .+10
+  bra .+200
+  bsr .-100
+  bsr .+1000
+  beq .+20
+  bne .-30
+  bhi .+40
+  bls .-50
+  bge .+60
+  blt .-70
   addq.b #1, %d0
   addq.w #3, %a1
   addq.l #8, (%a0)
