@@ -1,0 +1,9 @@
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    syscall(SYS_shmctl, 0, IPC_RMID, 0);
+    return 0;
+}

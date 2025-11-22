@@ -1,4 +1,9 @@
+*
+!/**/
+!*.*
 /target
 test
+test-bins
 *.pdf
 *.txt
+*.core

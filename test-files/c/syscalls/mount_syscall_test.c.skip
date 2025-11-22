@@ -1,0 +1,8 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    // Expect failure (lack of privileges or bad args) but exercise dispatch.
+    long res = syscall(SYS_mount, (const char *)0x1, (const char *)0x1, (const char *)0x1, 0, 0);
+    return res < 0 ? 0 : 1;
+}

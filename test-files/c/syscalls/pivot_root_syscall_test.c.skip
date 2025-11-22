@@ -1,0 +1,9 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    // Expected to fail without privilege; dispatch only.
+    long res = syscall(SYS_pivot_root, "/", "/");
+    (void)res;
+    return 0;
+}

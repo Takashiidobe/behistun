@@ -1,8 +1,8 @@
 use super::{
-    Abcd, AddrReg, AddressingMode, And, BitOp, BitOpImm, BitOpReg, Condition, DataDir, DataReg,
-    EffectiveAddress, Exg, ExtMode, Immediate, ImmOp, Instruction, InstructionKind, Movem, Movep,
-    MovepDirection, Or, QuickOp, RightOrLeft, Sbcd, Shift, ShiftCount, ShiftEa, ShiftReg, Size,
-    Sub, Subx, UnaryOp, UspDirection,
+    Abcd, AddrReg, AddressingMode, And, BitFieldParam, BitOp, BitOpImm, BitOpReg, Condition,
+    DataDir, DataReg, EffectiveAddress, Exg, ExtMode, ImmOp, Immediate, Instruction,
+    InstructionKind, Movem, Movep, MovepDirection, Or, QuickOp, Register, RightOrLeft, Sbcd,
+    Shift, ShiftCount, ShiftEa, ShiftReg, Size, Sub, Subx, UnaryOp, UspDirection,
 };
 use crate::decoder::Add;
 use std::fmt;
@@ -36,6 +36,24 @@ impl fmt::Display for ShiftCount {
         match self {
             ShiftCount::Immediate(value) => write!(f, "#{}", value),
             ShiftCount::Register(reg) => write!(f, "{reg}"),
+        }
+    }
+}
+
+impl fmt::Display for BitFieldParam {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BitFieldParam::Immediate(value) => write!(f, "{}", value),
+            BitFieldParam::Register(reg) => write!(f, "{reg}"),
+        }
+    }
+}
+
+impl fmt::Display for Register {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Register::Data(reg) => write!(f, "{reg}"),
+            Register::Address(reg) => write!(f, "{reg}"),
         }
     }
 }
@@ -102,10 +120,18 @@ impl fmt::Display for Movep {
         let disp_str = format_signed_hex(self.displacement as i32);
         match self.direction {
             MovepDirection::MemToReg => {
-                write!(f, "movep{} {}({}), {}", self.size, disp_str, self.addr_reg, self.data_reg)
+                write!(
+                    f,
+                    "movep{} {}({}), {}",
+                    self.size, disp_str, self.addr_reg, self.data_reg
+                )
             }
             MovepDirection::RegToMem => {
-                write!(f, "movep{} {}, {}({})", self.size, self.data_reg, disp_str, self.addr_reg)
+                write!(
+                    f,
+                    "movep{} {}, {}({})",
+                    self.size, self.data_reg, disp_str, self.addr_reg
+                )
             }
         }
     }
@@ -190,12 +216,13 @@ impl fmt::Display for InstructionKind {
             InstructionKind::Illegal => write!(f, "illegal"),
             InstructionKind::Rte => write!(f, "rte"),
             InstructionKind::Rts => write!(f, "rts"),
+            InstructionKind::Rtd { displacement } => write!(f, "rtd #{displacement}"),
             InstructionKind::Rtr => write!(f, "rtr"),
             InstructionKind::TrapV => write!(f, "trapv"),
-            InstructionKind::Negx(unary) => write!(f, "negx {}", unary),
-            InstructionKind::Clr(unary) => write!(f, "clr {}", unary),
-            InstructionKind::Neg(unary) => write!(f, "neg {}", unary),
-            InstructionKind::Not(unary) => write!(f, "not {}", unary),
+            InstructionKind::Negx(unary) => write!(f, "negx{}", unary),
+            InstructionKind::Clr(unary) => write!(f, "clr{}", unary),
+            InstructionKind::Neg(unary) => write!(f, "neg{}", unary),
+            InstructionKind::Not(unary) => write!(f, "not{}", unary),
             InstructionKind::Tas { mode } => write!(f, "tas.b {mode}"),
             InstructionKind::Tst { size, mode } => write!(f, "tst{size} {mode}"),
             InstructionKind::Jsr { mode } => write!(f, "jsr {mode}"),
@@ -226,6 +253,16 @@ impl fmt::Display for InstructionKind {
             InstructionKind::Roxd(shift) => write!(f, "rox{}", shift),
             InstructionKind::Rod(shift) => write!(f, "ro{}", shift),
             InstructionKind::Trap { vector } => write!(f, "trap #{vector}"),
+            InstructionKind::Trapcc { condition, operand } => {
+                let cond_str = condition.to_string().to_lowercase();
+                match operand {
+                    None => write!(f, "trap{cond_str}"),
+                    Some(Immediate::Word(w)) => write!(f, "trap{cond_str}.w #{w}"),
+                    Some(Immediate::Long(l)) => write!(f, "trap{cond_str}.l #{l}"),
+                    Some(Immediate::Byte(_)) => unreachable!("TRAPcc cannot have byte operand"),
+                }
+            }
+            InstructionKind::Bkpt { vector } => write!(f, "bkpt #{vector}"),
             InstructionKind::Link {
                 addr_reg,
                 displacement,
@@ -248,7 +285,13 @@ impl fmt::Display for InstructionKind {
                 data_reg,
                 displacement,
             } => {
-                write!(f, "db{} {}, {}", condition, data_reg, format_signed_hex(*displacement as i32))
+                write!(
+                    f,
+                    "db{} {}, {}",
+                    condition,
+                    data_reg,
+                    format_signed_hex(*displacement as i32)
+                )
             }
             InstructionKind::Bra { displacement } => {
                 write!(f, "bra {}", format_signed_hex(*displacement))
@@ -354,7 +397,10 @@ impl fmt::Display for InstructionKind {
             InstructionKind::MoveFromSr { dst } => write!(f, "move.w %sr, {dst}"),
             InstructionKind::MoveToCcr { src } => write!(f, "move.w {src}, %ccr"),
             InstructionKind::MoveToSr { src } => write!(f, "move.w {src}, %sr"),
-            InstructionKind::MoveUsp { addr_reg, direction } => match direction {
+            InstructionKind::MoveUsp {
+                addr_reg,
+                direction,
+            } => match direction {
                 UspDirection::RegToUsp => write!(f, "move.l {addr_reg}, %usp"),
                 UspDirection::UspToReg => write!(f, "move.l %usp, {addr_reg}"),
             },
@@ -370,10 +416,126 @@ impl fmt::Display for InstructionKind {
             InstructionKind::Swap { data_reg } => write!(f, "swap {data_reg}"),
             InstructionKind::Pea { mode } => write!(f, "pea {mode}"),
             InstructionKind::Lea { src, dst } => write!(f, "lea {src}, {dst}"),
-            InstructionKind::Chk { size, src, data_reg } => {
+            InstructionKind::Chk {
+                size,
+                src,
+                data_reg,
+            } => {
                 write!(f, "chk{size} {src}, {data_reg}")
             }
             InstructionKind::Movem(movem) => write!(f, "{movem}"),
+            InstructionKind::Cas { size, dc, du, mode } => {
+                write!(f, "cas{size} {dc}, {du}, {mode}")
+            }
+            InstructionKind::Cas2 {
+                size,
+                dc1,
+                dc2,
+                du1,
+                du2,
+                rn1,
+                rn2,
+            } => {
+                write!(f, "cas2{size} {dc1}:{dc2}, {du1}:{du2}, ({rn1}):({rn2})")
+            }
+            InstructionKind::Cmp2 { size, mode, reg } => {
+                write!(f, "cmp2{size} {mode}, {reg}")
+            }
+            InstructionKind::Chk2 { size, mode, reg } => {
+                write!(f, "chk2{size} {mode}, {reg}")
+            }
+            InstructionKind::Bftst {
+                mode,
+                offset,
+                width,
+            } => {
+                write!(f, "bftst {mode}{{{offset}:{width}}}")
+            }
+            InstructionKind::Bfchg {
+                mode,
+                offset,
+                width,
+            } => {
+                write!(f, "bfchg {mode}{{{offset}:{width}}}")
+            }
+            InstructionKind::Bfclr {
+                mode,
+                offset,
+                width,
+            } => {
+                write!(f, "bfclr {mode}{{{offset}:{width}}}")
+            }
+            InstructionKind::Bfset {
+                mode,
+                offset,
+                width,
+            } => {
+                write!(f, "bfset {mode}{{{offset}:{width}}}")
+            }
+            InstructionKind::Bfextu {
+                src,
+                dst,
+                offset,
+                width,
+            } => {
+                write!(f, "bfextu {src}{{{offset}:{width}}}, {dst}")
+            }
+            InstructionKind::Bfexts {
+                src,
+                dst,
+                offset,
+                width,
+            } => {
+                write!(f, "bfexts {src}{{{offset}:{width}}}, {dst}")
+            }
+            InstructionKind::Bfins {
+                src,
+                dst,
+                offset,
+                width,
+            } => {
+                write!(f, "bfins {src}, {dst}{{{offset}:{width}}}")
+            }
+            InstructionKind::Bfffo {
+                src,
+                dst,
+                offset,
+                width,
+            } => {
+                write!(f, "bfffo {src}{{{offset}:{width}}}, {dst}")
+            }
+            InstructionKind::MuluL { src, dl, dh } => match dh {
+                Some(dh) => write!(f, "mulu.l {src}, {dh}:{dl}"),
+                None => write!(f, "mulu.l {src}, {dl}"),
+            },
+            InstructionKind::MulsL { src, dl, dh } => match dh {
+                Some(dh) => write!(f, "muls.l {src}, {dh}:{dl}"),
+                None => write!(f, "muls.l {src}, {dl}"),
+            },
+            InstructionKind::DivuL {
+                src,
+                dq,
+                dr,
+                is_64bit,
+            } => {
+                if *is_64bit {
+                    write!(f, "divu.l {src}, {dr}:{dq}")
+                } else {
+                    write!(f, "divul.l {src}, {dr}:{dq}")
+                }
+            }
+            InstructionKind::DivsL {
+                src,
+                dq,
+                dr,
+                is_64bit,
+            } => {
+                if *is_64bit {
+                    write!(f, "divs.l {src}, {dr}:{dq}")
+                } else {
+                    write!(f, "divsl.l {src}, {dr}:{dq}")
+                }
+            }
         }
     }
 }

@@ -1,0 +1,9 @@
+#include <sys/syscall.h>
+#include <linux/sched.h>
+#include <unistd.h>
+
+int main() {
+    struct sched_attr attr = {0};
+    syscall(SYS_sched_getattr, 0, &attr, sizeof(attr), 0);
+    return 0;
+}

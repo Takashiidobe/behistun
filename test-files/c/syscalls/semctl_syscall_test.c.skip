@@ -1,0 +1,9 @@
+#include <sys/ipc.h>
+#include <sys/sem.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    syscall(SYS_semctl, 0, 0, 0);
+    return 0;
+}

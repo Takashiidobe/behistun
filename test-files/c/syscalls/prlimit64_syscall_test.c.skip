@@ -1,0 +1,9 @@
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    struct rlimit lim;
+    syscall(SYS_prlimit64, 0, RLIMIT_NOFILE, 0, &lim);
+    return 0;
+}

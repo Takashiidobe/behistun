@@ -1,0 +1,13 @@
+#include <signal.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+static void handler(int signo) {
+    (void)signo;
+}
+
+int main() {
+    struct sigaction sa = {.sa_handler = handler};
+    sigemptyset(&sa.sa_mask);
+    return syscall(SYS_rt_sigaction, SIGUSR1, &sa, 0, sizeof(sigset_t)) == 0 ? 0 : 1;
+}

@@ -1,0 +1,9 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <linux/perf_event.h>
+
+int main() {
+    struct perf_event_attr attr = {0};
+    syscall(SYS_perf_event_open, &attr, 0, -1, -1, 0);
+    return 0;
+}

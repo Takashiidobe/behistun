@@ -1,0 +1,9 @@
+#include <sys/syscall.h>
+#include <sys/timex.h>
+#include <unistd.h>
+
+int main() {
+    struct timex tx = {0};
+    syscall(SYS_clock_adjtime, CLOCK_REALTIME, &tx);
+    return 0;
+}

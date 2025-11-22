@@ -1,0 +1,9 @@
+#include <signal.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    siginfo_t info;
+    syscall(SYS_rt_tgsigqueueinfo, getpid(), syscall(SYS_gettid), SIGUSR1, &info);
+    return 0;
+}

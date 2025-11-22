@@ -1,0 +1,7 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    syscall(SYS_fchmodat2, AT_FDCWD, "fchmodat2_test.txt", 0644, 0);
+    return 0;
+}

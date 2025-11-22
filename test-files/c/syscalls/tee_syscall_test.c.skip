@@ -1,0 +1,19 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    int p1[2], p2[2];
+    if (syscall(SYS_pipe, p1) < 0 || syscall(SYS_pipe, p2) < 0) {
+        if (p1[0]) syscall(SYS_close, p1[0]);
+        if (p1[1]) syscall(SYS_close, p1[1]);
+        if (p2[0]) syscall(SYS_close, p2[0]);
+        if (p2[1]) syscall(SYS_close, p2[1]);
+        return 0;
+    }
+    long res = syscall(SYS_tee, p1[0], p2[1], 0, 0);
+    syscall(SYS_close, p1[0]);
+    syscall(SYS_close, p1[1]);
+    syscall(SYS_close, p2[0]);
+    syscall(SYS_close, p2[1]);
+    return res >= 0 || res < 0 ? 0 : 1;
+}

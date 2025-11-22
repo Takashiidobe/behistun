@@ -1,0 +1,8 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    long res = syscall(SYS_get_kernel_syms, 0);
+    (void)res;
+    return 0;
+}

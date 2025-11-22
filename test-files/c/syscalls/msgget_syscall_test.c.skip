@@ -1,0 +1,9 @@
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    syscall(SYS_msgget, IPC_PRIVATE, IPC_CREAT | 0600);
+    return 0;
+}

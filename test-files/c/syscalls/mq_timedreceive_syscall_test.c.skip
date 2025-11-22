@@ -1,0 +1,11 @@
+#include <mqueue.h>
+#include <sys/syscall.h>
+#include <time.h>
+#include <unistd.h>
+
+int main() {
+    char buf[4];
+    long res = syscall(SYS_mq_timedreceive, -1, buf, sizeof(buf), 0, (struct timespec *)0);
+    (void)res;
+    return 0;
+}

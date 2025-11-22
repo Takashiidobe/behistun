@@ -1,0 +1,10 @@
+#include <linux/capability.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    struct __user_cap_header_struct hdr = {._LINUX_CAPABILITY_VERSION_3, 0};
+    struct __user_cap_data_struct data[2] = {{0}};
+    long res = syscall(SYS_capget, &hdr, data);
+    return res == 0 ? 0 : 1;
+}

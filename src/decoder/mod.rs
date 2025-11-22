@@ -12,6 +12,9 @@ pub enum InstructionKind {
     Illegal,
     Rte,
     Rts,
+    Rtd {
+        displacement: i16,
+    },
     Rtr,
     Negx(UnaryOp),
     Clr(UnaryOp),
@@ -43,6 +46,13 @@ pub enum InstructionKind {
     Addx(Addx),
     TrapV,
     Trap {
+        vector: u8,
+    },
+    Trapcc {
+        condition: Condition,
+        operand: Option<Immediate>,
+    },
+    Bkpt {
         vector: u8,
     },
     Link {
@@ -89,6 +99,18 @@ pub enum InstructionKind {
         src: AddressingMode,
         dst: DataReg,
     },
+    DivuL {
+        src: AddressingMode,
+        dq: DataReg,    // quotient register
+        dr: DataReg,    // remainder register
+        is_64bit: bool, // true = 64÷32, false = 32÷32
+    },
+    DivsL {
+        src: AddressingMode,
+        dq: DataReg,
+        dr: DataReg,
+        is_64bit: bool,
+    },
     Sbcd(Sbcd),
     Or(Or),
     Cmp(EaToDn),
@@ -110,6 +132,16 @@ pub enum InstructionKind {
     Muls {
         src: AddressingMode,
         dst: DataReg,
+    },
+    MuluL {
+        src: AddressingMode,
+        dl: DataReg,         // low result register
+        dh: Option<DataReg>, // high result register (if 64-bit result)
+    },
+    MulsL {
+        src: AddressingMode,
+        dl: DataReg,
+        dh: Option<DataReg>,
     },
     Abcd(Abcd),
     Exg(Exg),
@@ -186,12 +218,108 @@ pub enum InstructionKind {
         data_reg: DataReg,
     },
     Movem(Movem),
+    /// CAS - Compare and Swap (68020+)
+    Cas {
+        size: Size,
+        dc: DataReg, // Compare operand
+        du: DataReg, // Update operand
+        mode: AddressingMode,
+    },
+    /// CAS2 - Compare and Swap 2 (68020+)
+    /// Dual compare-and-swap on two memory locations
+    Cas2 {
+        size: Size,
+        dc1: DataReg, // First compare operand
+        dc2: DataReg, // Second compare operand
+        du1: DataReg, // First update operand
+        du2: DataReg, // Second update operand
+        rn1: AddrReg, // First address register
+        rn2: AddrReg, // Second address register
+    },
+    /// CMP2 - Compare Register Against Bounds (68020+)
+    Cmp2 {
+        size: Size,
+        mode: AddressingMode,
+        reg: Register,
+    },
+    /// CHK2 - Check Register Against Bounds (68020+)
+    Chk2 {
+        size: Size,
+        mode: AddressingMode,
+        reg: Register,
+    },
+    /// BFTST - Test Bit Field (68020+)
+    Bftst {
+        mode: AddressingMode,
+        offset: BitFieldParam,
+        width: BitFieldParam,
+    },
+    /// BFCHG - Change Bit Field (invert bits) (68020+)
+    Bfchg {
+        mode: AddressingMode,
+        offset: BitFieldParam,
+        width: BitFieldParam,
+    },
+    /// BFCLR - Clear Bit Field (68020+)
+    Bfclr {
+        mode: AddressingMode,
+        offset: BitFieldParam,
+        width: BitFieldParam,
+    },
+    /// BFSET - Set Bit Field (68020+)
+    Bfset {
+        mode: AddressingMode,
+        offset: BitFieldParam,
+        width: BitFieldParam,
+    },
+    /// BFEXTU - Extract Bit Field Unsigned (68020+)
+    Bfextu {
+        src: AddressingMode,
+        dst: DataReg,
+        offset: BitFieldParam,
+        width: BitFieldParam,
+    },
+    /// BFEXTS - Extract Bit Field Signed (68020+)
+    Bfexts {
+        src: AddressingMode,
+        dst: DataReg,
+        offset: BitFieldParam,
+        width: BitFieldParam,
+    },
+    /// BFINS - Insert Bit Field (68020+)
+    Bfins {
+        src: DataReg,
+        dst: AddressingMode,
+        offset: BitFieldParam,
+        width: BitFieldParam,
+    },
+    /// BFFFO - Find First One Bit Field (68020+)
+    Bfffo {
+        src: AddressingMode,
+        dst: DataReg,
+        offset: BitFieldParam,
+        width: BitFieldParam,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum UspDirection {
     RegToUsp, // An -> USP
     UspToReg, // USP -> An
+}
+
+/// Bit field offset or width parameter (68020+)
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum BitFieldParam {
+    Immediate(u8),     // 0-31 for offset, 1-32 for width (0 means 32)
+    Register(DataReg), // Value taken from data register
+}
+
+/// General purpose register - either data or address register
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum Register {
+    Data(DataReg),
+    Address(AddrReg),
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -375,7 +503,6 @@ pub struct ImmOp {
     pub mode: AddressingMode,
 }
 
-#[allow(unused)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct Instruction {
     pub address: usize,
@@ -390,12 +517,16 @@ impl Instruction {
     }
 }
 
-#[allow(unused)]
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum AddressModeData {
     Short(u16),
     Long(u32),
     Imm(Immediate),
+    /// 68020+ full extension word format for indexed addressing
+    IndexExt {
+        ext_word: u16,
+        base_disp: i32,
+    },
 }
 
 impl AddressModeData {
@@ -409,11 +540,24 @@ impl AddressModeData {
                 Immediate::Word(v) => v.to_be_bytes().to_vec(),
                 Immediate::Long(v) => v.to_be_bytes().to_vec(),
             },
+            AddressModeData::IndexExt {
+                ext_word,
+                base_disp,
+            } => {
+                let mut bytes = ext_word.to_be_bytes().to_vec();
+                // BD size is in bits 5-4: 00=reserved, 01=null, 10=word, 11=long
+                let bd_size = (ext_word >> 4) & 0x3;
+                match bd_size {
+                    0b10 => bytes.extend((base_disp as i16).to_be_bytes()),
+                    0b11 => bytes.extend(base_disp.to_be_bytes()),
+                    _ => {}
+                }
+                bytes
+            }
         }
     }
 }
 
-#[allow(unused)]
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum Immediate {
     Byte(u8),
@@ -428,28 +572,6 @@ pub struct Decoder {
 impl Decoder {
     pub fn new(memory: MemoryImage) -> Self {
         Self { memory }
-    }
-
-    pub fn decode_instructions(&self, start: usize, end: usize) -> Result<Vec<Instruction>> {
-        let mut instructions = vec![];
-        let mut pc = start;
-        while pc < end {
-            let inst = match self.decode_instruction(pc) {
-                Ok(inst) => inst,
-                Err(err) => {
-                    let opcode = self.memory.read_word(pc)?;
-                    bail!(
-                        "Decode failure at {:#010x} (opcode {:#06x}): {err}",
-                        pc,
-                        opcode
-                    );
-                }
-            };
-            let len = inst.len();
-            instructions.push(inst);
-            pc += len;
-        }
-        Ok(instructions)
     }
 
     fn resolve_ea(
@@ -476,11 +598,39 @@ impl Decoder {
                 })
             }
             EffectiveAddress::AddrIndex(_) | EffectiveAddress::PCIndex => {
-                let word = self.memory.read_word(offset)?;
-                Ok(AddressingMode {
-                    ea: mode.ea,
-                    data: Some(AddressModeData::Short(word)),
-                })
+                let ext_word = self.memory.read_word(offset)?;
+                // Check bit 8 for full extension word format (68020+)
+                if (ext_word & 0x0100) != 0 {
+                    // Full extension word format
+                    // Bits 5-4: BD size (00=reserved, 01=null, 10=word, 11=long)
+                    let bd_size = (ext_word >> 4) & 0x3;
+                    let base_disp = match bd_size {
+                        0b01 => 0i32, // Null displacement
+                        0b10 => {
+                            // Word displacement
+                            let disp = self.memory.read_word(offset + 2)? as i16;
+                            disp as i32
+                        }
+                        0b11 => {
+                            // Long displacement
+                            self.memory.read_long(offset + 2)? as i32
+                        }
+                        _ => 0i32, // Reserved, treat as null
+                    };
+                    Ok(AddressingMode {
+                        ea: mode.ea,
+                        data: Some(AddressModeData::IndexExt {
+                            ext_word,
+                            base_disp,
+                        }),
+                    })
+                } else {
+                    // Brief extension word format (68000 compatible)
+                    Ok(AddressingMode {
+                        ea: mode.ea,
+                        data: Some(AddressModeData::Short(ext_word)),
+                    })
+                }
             }
             EffectiveAddress::Immediate => {
                 let size = immediate_size.unwrap_or(Size::Word);
@@ -629,7 +779,7 @@ impl Decoder {
         }
     }
 
-    fn decode_instruction(&self, start: usize) -> Result<Instruction> {
+    pub fn decode_instruction(&self, start: usize) -> Result<Instruction> {
         let opcode = self.memory.read_word(start)?;
         let instr_kind = Self::get_op_kind(opcode)?;
         let mut bytes = opcode.to_be_bytes().to_vec();
@@ -641,6 +791,14 @@ impl Decoder {
             | InstructionKind::Rts
             | InstructionKind::Rtr
             | InstructionKind::TrapV => instr_kind,
+            InstructionKind::Rtd { displacement: _ } => {
+                // Read 16-bit signed displacement
+                let disp_word = self.memory.read_word(start + 2)?;
+                bytes.extend(disp_word.to_be_bytes());
+                InstructionKind::Rtd {
+                    displacement: disp_word as i16,
+                }
+            }
             InstructionKind::Negx(unary) => {
                 let unary = self.resolve_unary(unary, start, &mut bytes)?;
                 InstructionKind::Negx(unary)
@@ -720,6 +878,34 @@ impl Decoder {
             },
             InstructionKind::Addx(_) => instr_kind,
             InstructionKind::Trap { vector } => InstructionKind::Trap { vector },
+            InstructionKind::Trapcc {
+                condition,
+                operand: _,
+            } => {
+                // Extract operand size from bits 0-2 of opcode
+                let size_code = bit_range(opcode, 0, 3);
+                let operand = match size_code {
+                    0b010 => {
+                        // Word operand
+                        let word = self.memory.read_word(start + 2)?;
+                        bytes.extend(word.to_be_bytes());
+                        Some(Immediate::Word(word))
+                    }
+                    0b011 => {
+                        // Long operand
+                        let long = self.memory.read_long(start + 2)?;
+                        bytes.extend(long.to_be_bytes());
+                        Some(Immediate::Long(long))
+                    }
+                    0b100 => {
+                        // No operand
+                        None
+                    }
+                    _ => bail!("Invalid TRAPcc operand size: {size_code}"),
+                };
+                InstructionKind::Trapcc { condition, operand }
+            }
+            InstructionKind::Bkpt { vector } => InstructionKind::Bkpt { vector },
             InstructionKind::Link {
                 addr_reg,
                 displacement: _,
@@ -776,18 +962,21 @@ impl Decoder {
                 }
             }
             InstructionKind::Bra { displacement } => {
-                let displacement = self.resolve_branch_displacement(displacement, start, &mut bytes)?;
+                let displacement =
+                    self.resolve_branch_displacement(displacement, start, &mut bytes)?;
                 InstructionKind::Bra { displacement }
             }
             InstructionKind::Bsr { displacement } => {
-                let displacement = self.resolve_branch_displacement(displacement, start, &mut bytes)?;
+                let displacement =
+                    self.resolve_branch_displacement(displacement, start, &mut bytes)?;
                 InstructionKind::Bsr { displacement }
             }
             InstructionKind::Bcc {
                 condition,
                 displacement,
             } => {
-                let displacement = self.resolve_branch_displacement(displacement, start, &mut bytes)?;
+                let displacement =
+                    self.resolve_branch_displacement(displacement, start, &mut bytes)?;
                 InstructionKind::Bcc {
                     condition,
                     displacement,
@@ -1026,6 +1215,321 @@ impl Decoder {
                     mode,
                 })
             }
+            InstructionKind::Cas { size, mode, .. } => {
+                // Extension word: 0000 000D DD00 0ddd
+                // DDD (bits 8-6) = Du (update register)
+                // ddd (bits 2-0) = Dc (compare register)
+                let ext_word = self.memory.read_word(start + 2)?;
+                bytes.extend(ext_word.to_be_bytes());
+                let du = DataReg::from_bits(((ext_word >> 6) & 0x7) as u8)?;
+                let dc = DataReg::from_bits((ext_word & 0x7) as u8)?;
+                let mode = self.resolve_ea(mode, start + 4, Some(size))?;
+                bytes.extend(mode.to_bytes());
+                InstructionKind::Cas { size, dc, du, mode }
+            }
+            InstructionKind::Cas2 { size, .. } => {
+                // CAS2 has two extension words
+                // Extension word 1: 1RRR 0000 00DD D0dd d
+                //   Bit 15: 1 (Rn1 is address register)
+                //   Bits 14-12: Rn1 address register number
+                //   Bit 11: 0
+                //   Bits 10-6: 00000
+                //   Bits 5-3: Du1 data register number
+                //   Bit 2: 0
+                //   Bits 2-0: Dc1 data register number
+                // Extension word 2: same format for Rn2, Du2, Dc2
+                let ext1 = self.memory.read_word(start + 2)?;
+                let ext2 = self.memory.read_word(start + 4)?;
+                bytes.extend(ext1.to_be_bytes());
+                bytes.extend(ext2.to_be_bytes());
+
+                let rn1 = AddrReg::from_bits(((ext1 >> 12) & 0x7) as u8)?;
+                let du1 = DataReg::from_bits(((ext1 >> 3) & 0x7) as u8)?;
+                let dc1 = DataReg::from_bits((ext1 & 0x7) as u8)?;
+
+                let rn2 = AddrReg::from_bits(((ext2 >> 12) & 0x7) as u8)?;
+                let du2 = DataReg::from_bits(((ext2 >> 3) & 0x7) as u8)?;
+                let dc2 = DataReg::from_bits((ext2 & 0x7) as u8)?;
+
+                InstructionKind::Cas2 {
+                    size,
+                    dc1,
+                    dc2,
+                    du1,
+                    du2,
+                    rn1,
+                    rn2,
+                }
+            }
+            InstructionKind::Cmp2 { size, mode, .. } | InstructionKind::Chk2 { size, mode, .. } => {
+                // Extension word: DAAA 1C00 0000 0000
+                //   Bit 15: D/A (0=data register, 1=address register)
+                //   Bits 14-12: Register number
+                //   Bit 11: CHK2/CMP2 selector (1=CHK2, 0=CMP2)
+                //   Other bits: reserved
+                let ext_word = self.memory.read_word(start + 2)?;
+                bytes.extend(ext_word.to_be_bytes());
+
+                let is_address = (ext_word & 0x8000) != 0;
+                let reg_num = ((ext_word >> 12) & 0x7) as u8;
+                let is_chk2 = (ext_word & 0x0800) != 0;
+
+                let reg = if is_address {
+                    Register::Address(AddrReg::from_bits(reg_num)?)
+                } else {
+                    Register::Data(DataReg::from_bits(reg_num)?)
+                };
+
+                let mode = self.resolve_ea(mode, start + 4, Some(size))?;
+                bytes.extend(mode.to_bytes());
+
+                if is_chk2 {
+                    InstructionKind::Chk2 { size, mode, reg }
+                } else {
+                    InstructionKind::Cmp2 { size, mode, reg }
+                }
+            }
+            InstructionKind::Bftst { mode, .. } => {
+                // Extension word for bit field instructions:
+                // Bit 11 (Do): 0=offset is immediate, 1=offset in register
+                // Bits 10-6: offset value (if Do=0) or bits 8-6 are register (if Do=1)
+                // Bit 5 (Dw): 0=width is immediate, 1=width in register
+                // Bits 4-0: width value (if Dw=0) or bits 2-0 are register (if Dw=1)
+                // Note: width of 0 means 32 bits
+                let ext_word = self.memory.read_word(start + 2)?;
+                bytes.extend(ext_word.to_be_bytes());
+                let offset = if (ext_word & 0x0800) != 0 {
+                    // Offset from register
+                    BitFieldParam::Register(DataReg::from_bits(((ext_word >> 6) & 0x7) as u8)?)
+                } else {
+                    // Immediate offset
+                    BitFieldParam::Immediate(((ext_word >> 6) & 0x1f) as u8)
+                };
+                let width = if (ext_word & 0x0020) != 0 {
+                    // Width from register
+                    BitFieldParam::Register(DataReg::from_bits((ext_word & 0x7) as u8)?)
+                } else {
+                    // Immediate width (0 means 32)
+                    BitFieldParam::Immediate((ext_word & 0x1f) as u8)
+                };
+                let mode = self.resolve_ea(mode, start + 4, None)?;
+                bytes.extend(mode.to_bytes());
+                InstructionKind::Bftst {
+                    mode,
+                    offset,
+                    width,
+                }
+            }
+            InstructionKind::Bfextu { src, .. } => {
+                // Extension word for BFEXTU:
+                // Bits 14-12: Destination register Dn
+                // Bit 11 (Do): 0=offset is immediate, 1=offset in register
+                // Bits 10-6: offset value (if Do=0) or bits 8-6 are register (if Do=1)
+                // Bit 5 (Dw): 0=width is immediate, 1=width in register
+                // Bits 4-0: width value (if Dw=0) or bits 2-0 are register (if Dw=1)
+                let ext_word = self.memory.read_word(start + 2)?;
+                bytes.extend(ext_word.to_be_bytes());
+                let dst = DataReg::from_bits(((ext_word >> 12) & 0x7) as u8)?;
+                let offset = if (ext_word & 0x0800) != 0 {
+                    BitFieldParam::Register(DataReg::from_bits(((ext_word >> 6) & 0x7) as u8)?)
+                } else {
+                    BitFieldParam::Immediate(((ext_word >> 6) & 0x1f) as u8)
+                };
+                let width = if (ext_word & 0x0020) != 0 {
+                    BitFieldParam::Register(DataReg::from_bits((ext_word & 0x7) as u8)?)
+                } else {
+                    BitFieldParam::Immediate((ext_word & 0x1f) as u8)
+                };
+                let src = self.resolve_ea(src, start + 4, None)?;
+                bytes.extend(src.to_bytes());
+                InstructionKind::Bfextu {
+                    src,
+                    dst,
+                    offset,
+                    width,
+                }
+            }
+            InstructionKind::Bfexts { src, .. } => {
+                // Extension word for BFEXTS (same format as BFEXTU):
+                // Bits 14-12: Destination register Dn
+                // Bit 11 (Do): 0=offset is immediate, 1=offset in register
+                // Bits 10-6: offset value (if Do=0) or bits 8-6 are register (if Do=1)
+                // Bit 5 (Dw): 0=width is immediate, 1=width in register
+                // Bits 4-0: width value (if Dw=0) or bits 2-0 are register (if Dw=1)
+                let ext_word = self.memory.read_word(start + 2)?;
+                bytes.extend(ext_word.to_be_bytes());
+                let dst = DataReg::from_bits(((ext_word >> 12) & 0x7) as u8)?;
+                let offset = if (ext_word & 0x0800) != 0 {
+                    BitFieldParam::Register(DataReg::from_bits(((ext_word >> 6) & 0x7) as u8)?)
+                } else {
+                    BitFieldParam::Immediate(((ext_word >> 6) & 0x1f) as u8)
+                };
+                let width = if (ext_word & 0x0020) != 0 {
+                    BitFieldParam::Register(DataReg::from_bits((ext_word & 0x7) as u8)?)
+                } else {
+                    BitFieldParam::Immediate((ext_word & 0x1f) as u8)
+                };
+                let src = self.resolve_ea(src, start + 4, None)?;
+                bytes.extend(src.to_bytes());
+                InstructionKind::Bfexts {
+                    src,
+                    dst,
+                    offset,
+                    width,
+                }
+            }
+            InstructionKind::Bfchg { mode, .. }
+            | InstructionKind::Bfclr { mode, .. }
+            | InstructionKind::Bfset { mode, .. } => {
+                // Extension word format like BFTST (no data reg fields)
+                let ext_word = self.memory.read_word(start + 2)?;
+                bytes.extend(ext_word.to_be_bytes());
+                let offset = if (ext_word & 0x0800) != 0 {
+                    BitFieldParam::Register(DataReg::from_bits(((ext_word >> 6) & 0x7) as u8)?)
+                } else {
+                    BitFieldParam::Immediate(((ext_word >> 6) & 0x1f) as u8)
+                };
+                let width = if (ext_word & 0x0020) != 0 {
+                    BitFieldParam::Register(DataReg::from_bits((ext_word & 0x7) as u8)?)
+                } else {
+                    BitFieldParam::Immediate((ext_word & 0x1f) as u8)
+                };
+                let mode = self.resolve_ea(mode, start + 4, None)?;
+                bytes.extend(mode.to_bytes());
+                match instr_kind {
+                    InstructionKind::Bfchg { .. } => InstructionKind::Bfchg {
+                        mode,
+                        offset,
+                        width,
+                    },
+                    InstructionKind::Bfclr { .. } => InstructionKind::Bfclr {
+                        mode,
+                        offset,
+                        width,
+                    },
+                    InstructionKind::Bfset { .. } => InstructionKind::Bfset {
+                        mode,
+                        offset,
+                        width,
+                    },
+                    _ => unreachable!(),
+                }
+            }
+            InstructionKind::Bfffo { src, .. } => {
+                // Extension word for BFFFO (same format as BFEXTU):
+                let ext_word = self.memory.read_word(start + 2)?;
+                bytes.extend(ext_word.to_be_bytes());
+                let dst = DataReg::from_bits(((ext_word >> 12) & 0x7) as u8)?;
+                let offset = if (ext_word & 0x0800) != 0 {
+                    BitFieldParam::Register(DataReg::from_bits(((ext_word >> 6) & 0x7) as u8)?)
+                } else {
+                    BitFieldParam::Immediate(((ext_word >> 6) & 0x1f) as u8)
+                };
+                let width = if (ext_word & 0x0020) != 0 {
+                    BitFieldParam::Register(DataReg::from_bits((ext_word & 0x7) as u8)?)
+                } else {
+                    BitFieldParam::Immediate((ext_word & 0x1f) as u8)
+                };
+                let src = self.resolve_ea(src, start + 4, None)?;
+                bytes.extend(src.to_bytes());
+                InstructionKind::Bfffo {
+                    src,
+                    dst,
+                    offset,
+                    width,
+                }
+            }
+            InstructionKind::Bfins { dst, .. } => {
+                // Extension word for BFINS (same format as BFEXTU/BFEXTS):
+                // Bits 14-12: Source register Dn (contains value to insert)
+                // Bit 11 (Do): 0=offset is immediate, 1=offset in register
+                // Bits 10-6: offset value (if Do=0) or bits 8-6 are register (if Do=1)
+                // Bit 5 (Dw): 0=width is immediate, 1=width in register
+                // Bits 4-0: width value (if Dw=0) or bits 2-0 are register (if Dw=1)
+                let ext_word = self.memory.read_word(start + 2)?;
+                bytes.extend(ext_word.to_be_bytes());
+                let src = DataReg::from_bits(((ext_word >> 12) & 0x7) as u8)?;
+                let offset = if (ext_word & 0x0800) != 0 {
+                    BitFieldParam::Register(DataReg::from_bits(((ext_word >> 6) & 0x7) as u8)?)
+                } else {
+                    BitFieldParam::Immediate(((ext_word >> 6) & 0x1f) as u8)
+                };
+                let width = if (ext_word & 0x0020) != 0 {
+                    BitFieldParam::Register(DataReg::from_bits((ext_word & 0x7) as u8)?)
+                } else {
+                    BitFieldParam::Immediate((ext_word & 0x1f) as u8)
+                };
+                let dst = self.resolve_ea(dst, start + 4, None)?;
+                bytes.extend(dst.to_bytes());
+                InstructionKind::Bfins {
+                    src,
+                    dst,
+                    offset,
+                    width,
+                }
+            }
+            InstructionKind::MuluL { src, .. } | InstructionKind::MulsL { src, .. } => {
+                // Extension word: 0hhh hs0f 0000 0lll
+                // hhh (bits 14-12) = Dh register (high result, if 64-bit)
+                // s (bit 11): 0=MULU.L, 1=MULS.L
+                // f (bit 10): 0=32-bit result, 1=64-bit result
+                // lll (bits 14-12) = Dl register (low result)
+                let ext_word = self.memory.read_word(start + 2)?;
+                bytes.extend(ext_word.to_be_bytes());
+                let is_signed = (ext_word & 0x0800) != 0;
+                let is_64bit = (ext_word & 0x0400) != 0;
+                let dest_low = DataReg::from_bits(((ext_word >> 12) & 0x7) as u8)?;
+                let dest_high = if is_64bit {
+                    Some(DataReg::from_bits((ext_word & 0x7) as u8)?)
+                } else {
+                    None
+                };
+                let src = self.resolve_ea(src, start + 4, Some(Size::Long))?;
+                bytes.extend(src.to_bytes());
+                if is_signed {
+                    InstructionKind::MulsL {
+                        src,
+                        dl: dest_low,
+                        dh: dest_high,
+                    }
+                } else {
+                    InstructionKind::MuluL {
+                        src,
+                        dl: dest_low,
+                        dh: dest_high,
+                    }
+                }
+            }
+            InstructionKind::DivuL { src, .. } | InstructionKind::DivsL { src, .. } => {
+                // Extension word: 0qqq qs0f 0000 0rrr
+                // qqq (bits 14-12) = Dq register (quotient)
+                // s (bit 11): 0=DIVU.L, 1=DIVS.L
+                // f (bit 10): 0=32÷32, 1=64÷32
+                // rrr (bits 2-0) = Dr register (remainder)
+                let ext_word = self.memory.read_word(start + 2)?;
+                bytes.extend(ext_word.to_be_bytes());
+                let is_signed = (ext_word & 0x0800) != 0;
+                let is_64bit = (ext_word & 0x0400) != 0;
+                let dq = DataReg::from_bits(((ext_word >> 12) & 0x7) as u8)?;
+                let dr = DataReg::from_bits((ext_word & 0x7) as u8)?;
+                let src = self.resolve_ea(src, start + 4, Some(Size::Long))?;
+                bytes.extend(src.to_bytes());
+                if is_signed {
+                    InstructionKind::DivsL {
+                        src,
+                        dq,
+                        dr,
+                        is_64bit,
+                    }
+                } else {
+                    InstructionKind::DivuL {
+                        src,
+                        dq,
+                        dr,
+                        is_64bit,
+                    }
+                }
+            }
         };
 
         let instruction = Instruction {
@@ -1043,6 +1547,10 @@ impl Decoder {
             0x4E70 => return Ok(InstructionKind::Reset),
             0x4E71 => return Ok(InstructionKind::Nop),
             0x4E73 => return Ok(InstructionKind::Rte),
+            0x4E74 => {
+                // RTD #<displacement> (68010+)
+                return Ok(InstructionKind::Rtd { displacement: 0 });
+            }
             0x4E75 => return Ok(InstructionKind::Rts),
             0x4E76 => return Ok(InstructionKind::TrapV),
             0x4E77 => return Ok(InstructionKind::Rtr),
@@ -1054,7 +1562,6 @@ impl Decoder {
         let top_reg = bit_range(opcode, 9, 12); // 9..12
         let op_nibble = bit_range(opcode, 8, 12); // 8..12
         let eight_nine = bit_range(opcode, 8, 9); // 8..9
-        let _seven_nine = bit_range(opcode, 7, 9); // 7..9
         let opmode = bit_range(opcode, 6, 9); //  6..9
         let six_seven = bit_range(opcode, 6, 7); // 6..7
         let size_bits = bit_range(opcode, 6, 8); // 6..8
@@ -1070,6 +1577,12 @@ impl Decoder {
                 // Trap
                 if op_nibble == 0b1110 && mid == 0b0100 {
                     return Ok(InstructionKind::Trap { vector: trap_bits });
+                }
+
+                // BKPT: 0100 1000 0100 1nnn (68010+)
+                if op_nibble == 0b1000 && mid == 0b0100 && ea_mode == 0b001 {
+                    let vector = bit_range(opcode, 0, 3);
+                    return Ok(InstructionKind::Bkpt { vector });
                 }
 
                 // Link/Unlk
@@ -1200,6 +1713,28 @@ impl Decoder {
                         data_reg,
                     });
                 }
+                // MULU.L/MULS.L: 0100 1100 00 mmmrrr (68020+)
+                // DIVU.L/DIVS.L: 0100 1100 01 mmmrrr (68020+)
+                if op_nibble == 0b1100 && size_bits <= 0b01 {
+                    let mode = effective_address(ea_bits)?;
+                    // Extension word and register selection resolved later
+                    if size_bits == 0b00 {
+                        // MULU.L/MULS.L
+                        return Ok(InstructionKind::MuluL {
+                            src: mode,
+                            dl: DataReg::D0, // placeholder
+                            dh: None,        // placeholder
+                        });
+                    } else {
+                        // DIVU.L/DIVS.L
+                        return Ok(InstructionKind::DivuL {
+                            src: mode,
+                            dq: DataReg::D0, // placeholder
+                            dr: DataReg::D0, // placeholder
+                            is_64bit: false, // placeholder
+                        });
+                    }
+                }
                 // MOVEM: 0100 1d00 1s eeeeee
                 // d=0 (reg to mem): op_nibble=1000, d=1 (mem to reg): op_nibble=1100
                 if matches!(op_nibble, 0b1000 | 0b1100) && size_bits >= 0b10 {
@@ -1233,6 +1768,74 @@ impl Decoder {
             0b1110 => {
                 let direction = RightOrLeft::from_bit(eight_nine)?;
                 if size_bits == 0b11 {
+                    // Check for bit field instructions (68020+)
+                    // BFTST:  1110 100 011 eeeeee (top_reg=100, bit8=0)
+                    // BFCHG:  1110 101 011 eeeeee (top_reg=101, bit8=0)
+                    // BFCLR:  1110 110 011 eeeeee (top_reg=110, bit8=0)
+                    // BFSET:  1110 111 011 eeeeee (top_reg=111, bit8=0)
+                    // BFEXTU: 1110 100 111 eeeeee (top_reg=100, bit8=1)
+                    // BFEXTS: 1110 101 111 eeeeee (top_reg=101, bit8=1)
+                    // BFFFO:  1110 110 111 eeeeee (top_reg=110, bit8=1)
+                    // BFINS:  1110 111 111 eeeeee (top_reg=111, bit8=1)
+                    if top_reg >= 0b100 {
+                        let mode = effective_address(ea_bits)?;
+                        // Placeholders - extension word resolved later
+                        let offset = BitFieldParam::Immediate(0);
+                        let width = BitFieldParam::Immediate(0);
+                        // dst placeholder for BFEXTU - resolved from extension word later
+                        let dst = DataReg::D0;
+                        return match (top_reg, eight_nine) {
+                            (0b100, 0) => Ok(InstructionKind::Bftst {
+                                mode,
+                                offset,
+                                width,
+                            }),
+                            (0b101, 0) => Ok(InstructionKind::Bfchg {
+                                mode,
+                                offset,
+                                width,
+                            }),
+                            (0b110, 0) => Ok(InstructionKind::Bfclr {
+                                mode,
+                                offset,
+                                width,
+                            }),
+                            (0b111, 0) => Ok(InstructionKind::Bfset {
+                                mode,
+                                offset,
+                                width,
+                            }),
+                            (0b100, 1) => Ok(InstructionKind::Bfextu {
+                                src: mode,
+                                dst,
+                                offset,
+                                width,
+                            }),
+                            (0b101, 1) => Ok(InstructionKind::Bfexts {
+                                src: mode,
+                                dst,
+                                offset,
+                                width,
+                            }),
+                            (0b110, 1) => Ok(InstructionKind::Bfffo {
+                                src: mode,
+                                dst,
+                                offset,
+                                width,
+                            }),
+                            (0b111, 1) => Ok(InstructionKind::Bfins {
+                                src: dst,  // src is actually a DataReg, reusing dst placeholder
+                                dst: mode,
+                                offset,
+                                width,
+                            }),
+                            _ => bail!(
+                                "Unsupported bit field instruction: top_reg={:#05b}, bit8={}",
+                                top_reg,
+                                eight_nine
+                            ),
+                        };
+                    }
                     let mode = effective_address(ea_bits)?;
                     let shift = Shift::Ea(ShiftEa { direction, mode });
                     return match top_reg {
@@ -1371,6 +1974,26 @@ impl Decoder {
                         _ => unreachable!(),
                     };
                 }
+                // CHK2/CMP2: 0000 0ss0 11mm mrrr (68020+)
+                // op_nibble = 0ss0, size_bits = 11
+                // Must check BEFORE immediate operations since 0ss0 can match ADDI pattern
+                // Differentiated from CAS by having op_nibble bit 3 = 0
+                if (op_nibble & 0b1001) == 0b0000 && size_bits == 0b11 && op_nibble != 0 {
+                    let size = match (op_nibble >> 1) & 0b11 {
+                        0b00 => Size::Byte,
+                        0b01 => Size::Word,
+                        0b10 => Size::Long,
+                        _ => bail!("Invalid CHK2/CMP2 size"),
+                    };
+                    let mode = effective_address(ea_bits)?;
+                    // CHK2 vs CMP2 and register determined from extension word
+                    // Use CMP2 as placeholder, will be resolved in decode_instruction
+                    return Ok(InstructionKind::Cmp2 {
+                        size,
+                        mode,
+                        reg: Register::Data(DataReg::D0), // placeholder
+                    });
+                }
                 // Ori/Andi/Subi/Addi/Eori/Cmpi #imm, <ea>
                 // 0000 oooo ss eeeeee (oooo: 0000=ORI, 0010=ANDI, 0100=SUBI, 0110=ADDI, 1010=EORI, 1100=CMPI)
                 if matches!(
@@ -1395,12 +2018,59 @@ impl Decoder {
                         _ => unreachable!(),
                     };
                 }
+                // CAS2: 0000 1ss0 11111100 (68020+)
+                // ea_bits = 111100 = 0x3C
+                if (op_nibble & 0b1001) == 0b1000 && size_bits == 0b11 && ea_bits == 0x3C {
+                    let cas_size = match (op_nibble >> 1) & 0b11 {
+                        0b01 => Size::Byte,
+                        0b10 => Size::Word,
+                        0b11 => Size::Long,
+                        _ => bail!("Invalid CAS2 size"),
+                    };
+                    // All registers read from extension words during resolve
+                    return Ok(InstructionKind::Cas2 {
+                        size: cas_size,
+                        dc1: DataReg::D0, // placeholder
+                        dc2: DataReg::D0, // placeholder
+                        du1: DataReg::D0, // placeholder
+                        du2: DataReg::D0, // placeholder
+                        rn1: AddrReg::A0, // placeholder
+                        rn2: AddrReg::A0, // placeholder
+                    });
+                }
+                // CAS: 0000 1ss0 11mm mrrr (68020+)
+                // op_nibble = 1ss0, size_bits = 11
+                if (op_nibble & 0b1001) == 0b1000 && size_bits == 0b11 {
+                    let cas_size = match (op_nibble >> 1) & 0b11 {
+                        0b01 => Size::Byte,
+                        0b10 => Size::Word,
+                        0b11 => Size::Long,
+                        _ => bail!("Invalid CAS size"),
+                    };
+                    let mode = effective_address(ea_bits)?;
+                    // dc and du registers read from extension word during resolve
+                    return Ok(InstructionKind::Cas {
+                        size: cas_size,
+                        dc: DataReg::D0, // placeholder
+                        du: DataReg::D0, // placeholder
+                        mode,
+                    });
+                }
                 bail!("Unsupported group 0 instruction");
             }
             0b0101 => {
-                // Scc/DBcc when size_bits == 11
+                // Scc/DBcc/TRAPcc when size_bits == 11
                 if size_bits == 0b11 {
                     let condition = Condition::from(op_nibble);
+                    // TRAPcc: 0101 cccc 1111 1sss (68020+)
+                    if ea_mode == 0b111 {
+                        // ea_reg encodes the operand size
+                        // 010 = word, 011 = long, 100 = no operand
+                        return Ok(InstructionKind::Trapcc {
+                            condition,
+                            operand: None, // resolved later
+                        });
+                    }
                     // DBcc: 0101 cccc 11 001 rrr
                     if ea_mode == 0b001 {
                         let data_reg = DataReg::from_bits(ea_reg)?;
@@ -1634,22 +2304,22 @@ impl Decoder {
                 match condition {
                     Condition::True => {
                         // BRA
-                        return Ok(InstructionKind::Bra {
+                        Ok(InstructionKind::Bra {
                             displacement: disp_byte, // resolved later if 0 or -1
-                        });
+                        })
                     }
                     Condition::False => {
                         // BSR
-                        return Ok(InstructionKind::Bsr {
+                        Ok(InstructionKind::Bsr {
                             displacement: disp_byte, // resolved later if 0 or -1
-                        });
+                        })
                     }
                     _ => {
                         // Bcc
-                        return Ok(InstructionKind::Bcc {
+                        Ok(InstructionKind::Bcc {
                             condition,
                             displacement: disp_byte, // resolved later if 0 or -1
-                        });
+                        })
                     }
                 }
             }
@@ -1666,7 +2336,7 @@ impl Decoder {
             // MOVE/MOVEA: 00ss ddd mmm sss nnn
             // size encoding: 01=byte, 11=word, 10=long (different from normal!)
             // ddd=dest reg (top_reg), mmm=dest mode (opmode), sss=src mode (ea_mode), nnn=src reg (ea_reg)
-            0b0001 | 0b0010 | 0b0011 => {
+            0b0001..=0b0011 => {
                 let size = match group {
                     0b0001 => Size::Byte,
                     0b0011 => Size::Word,
@@ -1842,6 +2512,22 @@ impl AddressingMode {
             _ => None,
         }
     }
+
+    /// Get index extension data (for 68020+ full format or 68000 brief format)
+    pub fn index_ext(&self) -> Option<(u16, i32)> {
+        match self.data {
+            Some(AddressModeData::IndexExt {
+                ext_word,
+                base_disp,
+            }) => Some((ext_word, base_disp)),
+            Some(AddressModeData::Short(ext_word)) => {
+                // Brief format: 8-bit displacement in low byte
+                let disp = (ext_word & 0xFF) as i8 as i32;
+                Some((ext_word, disp))
+            }
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -1981,13 +2667,6 @@ impl DataDir {
     }
 }
 
-#[allow(unused)]
-#[derive(Debug, Clone, Copy)]
-pub enum DnEa {
-    DnEa, // Dn, Ea -> Dn 0
-    EaDn, // Ea, Dn -> Ea 1
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RightOrLeft {
     Right, // R b0
@@ -2002,13 +2681,6 @@ impl RightOrLeft {
             _ => bail!("Invalid direction bit: {bit}"),
         }
     }
-}
-
-#[allow(unused)]
-#[derive(Debug, Clone, Copy)]
-pub enum Mode {
-    DataReg,     // Dn  b0
-    AddrPreDecr, // -(An) b1
 }
 
 #[derive(Debug, Clone, Copy)]

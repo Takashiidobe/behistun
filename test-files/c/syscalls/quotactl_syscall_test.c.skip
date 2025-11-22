@@ -1,0 +1,10 @@
+#include <sys/quota.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    // Expect failure; dispatch exercise.
+    long res = syscall(SYS_quotactl, 0, "/", 0, 0);
+    (void)res;
+    return 0;
+}

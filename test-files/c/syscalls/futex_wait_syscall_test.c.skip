@@ -1,0 +1,8 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    int val = 0;
+    syscall(SYS_futex_wait, &val, 0, 0);
+    return 0;
+}

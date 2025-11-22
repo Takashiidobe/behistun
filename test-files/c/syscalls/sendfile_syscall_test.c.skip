@@ -1,0 +1,21 @@
+#include <sys/sendfile.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    int in = syscall(SYS_memfd_create, "sendfile_in", 0);
+    int out = syscall(SYS_memfd_create, "sendfile_out", 0);
+    if (in < 0 || out < 0) {
+        if (in >= 0) syscall(SYS_close, in);
+        if (out >= 0) syscall(SYS_close, out);
+        return 1;
+    }
+
+    syscall(SYS_write, in, "abc", 3);
+    syscall(SYS_lseek, in, 0, SEEK_SET);
+    off_t offset = 0;
+    long res = syscall(SYS_sendfile, out, in, &offset, 3);
+    syscall(SYS_close, in);
+    syscall(SYS_close, out);
+    return res == 3 ? 0 : 1;
+}

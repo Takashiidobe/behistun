@@ -1,0 +1,15 @@
+#include <sys/mman.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+  void *p =
+      mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (p == MAP_FAILED) {
+    return 1;
+  }
+
+  long res = syscall(SYS_mprotect, p, 4096, PROT_READ);
+  syscall(SYS_munmap, p, 4096);
+  return res == 0 ? 0 : 1;
+}

@@ -1,0 +1,14 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+struct file_handle_dummy {
+    unsigned handle_bytes;
+    int handle_type;
+    char f_handle[8];
+};
+
+int main() {
+    struct file_handle_dummy fh = {0};
+    syscall(SYS_open_by_handle_at, -1, &fh, 0);
+    return 0;
+}

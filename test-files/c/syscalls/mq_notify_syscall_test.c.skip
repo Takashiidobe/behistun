@@ -1,0 +1,9 @@
+#include <mqueue.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    long res = syscall(SYS_mq_notify, -1, (const struct sigevent *)0);
+    (void)res;
+    return 0;
+}

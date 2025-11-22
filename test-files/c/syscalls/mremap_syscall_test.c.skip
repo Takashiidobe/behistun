@@ -1,0 +1,18 @@
+#include <sys/mman.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    void *p = mmap(0, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (p == MAP_FAILED) {
+        return 1;
+    }
+
+    void *newp = (void *)syscall(SYS_mremap, p, 4096, 8192, MREMAP_MAYMOVE);
+    if (newp == MAP_FAILED) {
+        return 1;
+    }
+
+    syscall(SYS_munmap, newp, 8192);
+    return 0;
+}

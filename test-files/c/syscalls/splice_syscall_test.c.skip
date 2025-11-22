@@ -1,0 +1,13 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    int pipefd[2];
+    if (syscall(SYS_pipe, pipefd) < 0) {
+        return 0;
+    }
+    long res = syscall(SYS_splice, pipefd[0], 0, pipefd[1], 0, 0, 0);
+    syscall(SYS_close, pipefd[0]);
+    syscall(SYS_close, pipefd[1]);
+    return res >= 0 || res < 0 ? 0 : 1;
+}

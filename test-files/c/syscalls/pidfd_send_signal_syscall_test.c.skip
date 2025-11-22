@@ -1,0 +1,8 @@
+#include <signal.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    syscall(SYS_pidfd_send_signal, -1, SIGTERM, 0, 0);
+    return 0;
+}

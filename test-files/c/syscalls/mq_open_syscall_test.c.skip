@@ -1,0 +1,13 @@
+#include <fcntl.h>
+#include <mqueue.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    mqd_t mq = syscall(SYS_mq_open, "/mq_syscall_test", O_CREAT | O_RDWR, 0600, NULL);
+    if (mq >= 0) {
+        syscall(SYS_mq_close, mq);
+        syscall(SYS_mq_unlink, "/mq_syscall_test");
+    }
+    return 0;
+}

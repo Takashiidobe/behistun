@@ -1,0 +1,9 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    // uselib is obsolete; expect failure but ensure dispatch.
+    long res = syscall(SYS_uselib, "/nonexistent");
+    (void)res;
+    return 0;
+}

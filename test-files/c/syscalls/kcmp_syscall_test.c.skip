@@ -1,0 +1,7 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    syscall(SYS_kcmp, getpid(), getpid(), 0, 0, 0);
+    return 0;
+}

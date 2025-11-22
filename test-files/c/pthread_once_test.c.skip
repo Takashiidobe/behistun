@@ -1,0 +1,33 @@
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+static pthread_once_t once_control = PTHREAD_ONCE_INIT;
+static int initialized = 0;
+
+static void init_fn(void) {
+    initialized++;
+}
+
+static void *thread_fn(void *arg) {
+    (void)arg;
+    for (int i = 0; i < 3; i++) {
+        pthread_once(&once_control, init_fn);
+    }
+    return NULL;
+}
+
+int main(void) {
+    pthread_t threads[4];
+    for (int i = 0; i < 4; i++) {
+        if (pthread_create(&threads[i], NULL, thread_fn, NULL) != 0) {
+            perror("pthread_create");
+            return 1;
+        }
+    }
+    for (int i = 0; i < 4; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    printf("initialized=%d\n", initialized);
+    return initialized == 1 ? 0 : 1;
+}

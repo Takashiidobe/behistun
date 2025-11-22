@@ -1,0 +1,16 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <stdint.h>
+
+struct futex_waitv {
+    uint64_t val;
+    uint64_t uaddr;
+    uint32_t flags;
+    uint32_t __reserved;
+};
+
+int main() {
+    struct futex_waitv fv = {0};
+    syscall(SYS_futex_waitv, &fv, 1, 0, 0, 0);
+    return 0;
+}

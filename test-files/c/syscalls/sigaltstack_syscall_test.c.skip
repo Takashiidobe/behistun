@@ -1,0 +1,12 @@
+#include <signal.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    stack_t ss;
+    ss.ss_sp = (void *)((char[8192]){0});
+    ss.ss_size = 8192;
+    ss.ss_flags = 0;
+    long res = syscall(SYS_sigaltstack, &ss, 0);
+    return res == 0 || res < 0 ? 0 : 1;
+}

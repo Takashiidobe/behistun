@@ -1,0 +1,9 @@
+#include <sys/syscall.h>
+#include <ustat.h>
+#include <unistd.h>
+
+int main() {
+    struct ustat st;
+    // Likely to fail due to invalid dev; still exercises dispatch.
+    return syscall(SYS_ustat, 0, &st) < 0 ? 0 : 1;
+}

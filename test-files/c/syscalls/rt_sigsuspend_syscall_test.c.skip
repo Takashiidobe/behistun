@@ -1,0 +1,12 @@
+#include <signal.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    sigset_t set;
+    sigemptyset(&set);
+    // Would normally block; using .skip to avoid hangs while still exercising dispatch when run manually.
+    long res = syscall(SYS_rt_sigsuspend, &set, sizeof(sigset_t));
+    (void)res;
+    return 0;
+}

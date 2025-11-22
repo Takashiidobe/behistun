@@ -1,0 +1,9 @@
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    syscall(SYS_msgctl, 0, IPC_RMID, 0);
+    return 0;
+}

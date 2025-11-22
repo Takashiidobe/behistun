@@ -1,0 +1,8 @@
+#include <signal.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    sigset_t set;
+    return syscall(SYS_rt_sigpending, &set, sizeof(sigset_t)) == 0 ? 0 : 1;
+}

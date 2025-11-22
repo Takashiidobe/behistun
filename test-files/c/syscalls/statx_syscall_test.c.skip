@@ -1,0 +1,9 @@
+#include <sys/syscall.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+int main() {
+    struct statx st = {0};
+    syscall(SYS_statx, AT_FDCWD, ".", 0, STATX_ALL, &st);
+    return 0;
+}

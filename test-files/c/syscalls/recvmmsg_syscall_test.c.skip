@@ -1,0 +1,15 @@
+#include <sys/socket.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <time.h>
+
+int main() {
+    int fd = syscall(SYS_socket, AF_UNIX, SOCK_DGRAM, 0);
+    if (fd >= 0) {
+        struct mmsghdr msg = {0};
+        struct timespec ts = {0, 0};
+        syscall(SYS_recvmmsg, fd, &msg, 1, 0, &ts);
+        syscall(SYS_close, fd);
+    }
+    return 0;
+}

@@ -1,0 +1,14 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+struct robust_list_head {
+    struct robust_list_head *next;
+    long futex_offset;
+    struct robust_list_head *list_op_pending;
+};
+
+int main() {
+    struct robust_list_head head = {0};
+    long res = syscall(SYS_set_robust_list, &head, sizeof(head));
+    return res == 0 || res < 0 ? 0 : 1;
+}

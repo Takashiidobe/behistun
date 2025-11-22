@@ -1,0 +1,9 @@
+#include <sched.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    struct timespec ts;
+    long res = syscall(SYS_sched_rr_get_interval, 0, &ts);
+    return res == 0 ? 0 : 1;
+}

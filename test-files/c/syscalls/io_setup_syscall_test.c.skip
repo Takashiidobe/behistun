@@ -1,0 +1,12 @@
+#include <sys/eventfd.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    aio_context_t ctx = 0;
+    long res = syscall(SYS_io_setup, 1, &ctx);
+    if (res == 0) {
+        syscall(SYS_io_destroy, ctx);
+    }
+    return res == 0 || res < 0 ? 0 : 1;
+}

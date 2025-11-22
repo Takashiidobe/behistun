@@ -1,0 +1,8 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    long res = syscall(SYS_add_key, "user", "name", "data", 4, KEY_SPEC_PROCESS_KEYRING);
+    (void)res;
+    return 0;
+}

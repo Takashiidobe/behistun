@@ -1,0 +1,7 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    syscall(SYS_faccessat2, AT_FDCWD, "faccessat2_test.txt", R_OK, 0);
+    return 0;
+}

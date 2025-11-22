@@ -1,0 +1,8 @@
+#include <linux/bpf.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    syscall(SYS_bpf, BPF_MAP_CREATE, 0, 0);
+    return 0;
+}

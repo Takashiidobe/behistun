@@ -1,0 +1,9 @@
+#include <mqueue.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    long res = syscall(SYS_mq_unlink, "/mq_unlink_syscall_test");
+    (void)res;
+    return 0;
+}

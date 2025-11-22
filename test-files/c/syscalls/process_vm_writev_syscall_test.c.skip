@@ -1,0 +1,10 @@
+#include <sys/syscall.h>
+#include <sys/uio.h>
+#include <unistd.h>
+
+int main() {
+    struct iovec local = {(void *)((char[4]){0}), 4};
+    struct iovec remote = {(void *)((char[4]){0}), 4};
+    syscall(SYS_process_vm_writev, getpid(), &local, 1, &remote, 1, 0);
+    return 0;
+}

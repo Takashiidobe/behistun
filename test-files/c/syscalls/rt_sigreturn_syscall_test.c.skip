@@ -1,0 +1,9 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    // Calling rt_sigreturn directly is not meaningful; ensure syscall entry exists.
+    long res = syscall(SYS_rt_sigreturn);
+    (void)res;
+    return 0;
+}

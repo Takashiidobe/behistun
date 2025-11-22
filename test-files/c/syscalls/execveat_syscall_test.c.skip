@@ -1,0 +1,10 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+extern char **environ;
+
+int main() {
+    char *argv[] = {"/bin/true", NULL};
+    syscall(SYS_execveat, AT_FDCWD, "/bin/true", argv, environ, 0);
+    return 0;
+}

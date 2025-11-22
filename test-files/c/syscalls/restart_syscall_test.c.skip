@@ -1,0 +1,9 @@
+#include <sys/syscall.h>
+#include <unistd.h>
+
+int main() {
+    // Simply invoke restart_syscall; it is expected to return -ENOSYS when
+    // called directly from user space, but should still dispatch.
+    (void)syscall(SYS_restart_syscall);
+    return 0;
+}

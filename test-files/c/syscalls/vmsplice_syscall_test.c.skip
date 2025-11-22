@@ -1,0 +1,16 @@
+#include <sys/syscall.h>
+#include <sys/uio.h>
+#include <unistd.h>
+
+int main() {
+    int pipefd[2];
+    if (syscall(SYS_pipe, pipefd) < 0) {
+        return 0;
+    }
+    const char data[] = "x";
+    struct iovec iov = {(void *)data, 1};
+    long res = syscall(SYS_vmsplice, pipefd[1], &iov, 1, 0);
+    syscall(SYS_close, pipefd[0]);
+    syscall(SYS_close, pipefd[1]);
+    return res >= 0 || res < 0 ? 0 : 1;
+}

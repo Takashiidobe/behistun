@@ -1,0 +1,5 @@
+CompileFlags:
+  Add:
+    - -I/home/takashi/current/mintbox/build/include
+    - -isystem/usr/m68k-atari-mint/sys-root/usr/include
+  Arguments: [--query-driver=/usr/bin/m68k-atari-mint-*]
