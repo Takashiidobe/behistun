@@ -11,6 +11,10 @@ pub enum InstructionKind {
     Rte,
     Rts,
     Rtr,
+    Negx(UnaryOp),
+    Clr(UnaryOp),
+    Neg(UnaryOp),
+    Not(UnaryOp),
     Asd(Shift),
     Lsd(Shift),
     Roxd(Shift),
@@ -103,6 +107,12 @@ pub struct ShiftReg {
 pub enum Shift {
     Ea(ShiftEa),
     Reg(ShiftReg),
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub struct UnaryOp {
+    size: Size,
+    mode: AddressingMode,
 }
 
 #[allow(unused)]
@@ -250,6 +260,15 @@ impl Decoder {
         }
     }
 
+    fn resolve_unary(&self, unary: UnaryOp, start: usize, bytes: &mut Vec<u8>) -> Result<UnaryOp> {
+        let mode = self.resolve_ea(unary.mode, start + 2, Some(unary.size))?;
+        bytes.extend(mode.to_bytes());
+        Ok(UnaryOp {
+            size: unary.size,
+            mode,
+        })
+    }
+
     fn decode_instruction(&self, start: usize) -> Result<Instruction> {
         let opcode = self.memory.read_word(start)?;
         let instr_kind = Self::get_op_kind(opcode)?;
@@ -262,6 +281,22 @@ impl Decoder {
             | InstructionKind::Rts
             | InstructionKind::Rtr
             | InstructionKind::TrapV => instr_kind,
+            InstructionKind::Negx(unary) => {
+                let unary = self.resolve_unary(unary, start, &mut bytes)?;
+                InstructionKind::Negx(unary)
+            }
+            InstructionKind::Clr(unary) => {
+                let unary = self.resolve_unary(unary, start, &mut bytes)?;
+                InstructionKind::Clr(unary)
+            }
+            InstructionKind::Neg(unary) => {
+                let unary = self.resolve_unary(unary, start, &mut bytes)?;
+                InstructionKind::Neg(unary)
+            }
+            InstructionKind::Not(unary) => {
+                let unary = self.resolve_unary(unary, start, &mut bytes)?;
+                InstructionKind::Not(unary)
+            }
             InstructionKind::Asd(shift) => {
                 let shift = self.resolve_shift(shift, start, &mut bytes)?;
                 InstructionKind::Asd(shift)
@@ -350,6 +385,7 @@ impl Decoder {
 
         let group = bit_range(opcode, 12, 16); // 12..16
         let top_reg = bit_range(opcode, 9, 12); // 9..12
+        let op_nibble = bit_range(opcode, 8, 12); // 8..12
         let eight_nine = bit_range(opcode, 8, 9); // 8..9
         let seven_nine = bit_range(opcode, 7, 9); // 7..9
         let opmode = bit_range(opcode, 6, 9); //  6..9
@@ -394,6 +430,21 @@ impl Decoder {
                             });
                         }
                     }
+                }
+                match op_nibble {
+                    0b0000 | 0b0010 | 0b0100 | 0b0110 => {
+                        let size = Size::from_size_bits(size_bits)?;
+                        let mode = effective_address(ea_bits)?;
+                        let unary = UnaryOp { size, mode };
+                        return match op_nibble {
+                            0b0000 => Ok(InstructionKind::Negx(unary)),
+                            0b0010 => Ok(InstructionKind::Clr(unary)),
+                            0b0100 => Ok(InstructionKind::Neg(unary)),
+                            0b0110 => Ok(InstructionKind::Not(unary)),
+                            _ => unreachable!(),
+                        };
+                    }
+                    _ => {}
                 }
                 bail!("Unsupported");
             }

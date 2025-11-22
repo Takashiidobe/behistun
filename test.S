@@ -1,9 +1,13 @@
 .globl _start
 _start:
-	lsl.b %d0, %d0
-	lsr.b %d0, %d0
-	asr.b %d0, %d0
-	ror.b %d0, %d0
+	negx.w %d0 
+	clr.w %d0 
+	neg.w %d0 
+	not.w %d1
+	| lsl.b %d0, %d0
+	| lsr.b %d0, %d0
+	| asr.b %d0, %d0
+	| ror.b %d0, %d0
 	| adda.w (%a0), %a2
 	| adda.l (%a1), %a2
   | add.w %d1, %d2

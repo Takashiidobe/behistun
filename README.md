@@ -28,3 +28,8 @@ The following instructions are currently supported by the decoder:
 - `Lsd`
 - `Roxd`
 - `Rod`
+
+- `Negx`
+- `Clr`
+- `Neg`
+- `Not`
