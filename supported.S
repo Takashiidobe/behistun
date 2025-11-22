@@ -1,5 +1,17 @@
 .globl _start
 _start:
+  lea (%a0), %a1
+  lea 0x10(%a2), %a3
+  lea 0x1234.w, %a4
+  lea 0x12345678.l, %a5
+  chk.w %d0, %d1
+  chk.w (%a0), %d2
+  chk.w 0x100.w, %d3
+  movem.w %d0-%d3, (%a0)
+  movem.l %d0-%d7/%a0-%a6, -(%a7)
+  movem.w (%a0), %d0-%d3
+  movem.l (%a7)+, %d0-%d7/%a0-%a6
+  movem.l 0x1000.w, %d0/%d2/%a1
 	move.l %a0, %usp
 	move.l %usp, %a1
 	ext.w %d0

@@ -120,6 +120,16 @@ pub enum InstructionKind {
     Pea {
         mode: AddressingMode,
     },
+    Lea {
+        src: AddressingMode,
+        dst: AddrReg,
+    },
+    Chk {
+        size: Size,
+        src: AddressingMode,
+        data_reg: DataReg,
+    },
+    Movem(Movem),
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -201,6 +211,14 @@ pub struct Movep {
 pub enum MovepDirection {
     MemToReg,
     RegToMem,
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub struct Movem {
+    pub size: Size,
+    pub direction: DataDir,
+    pub register_mask: u16,
+    pub mode: AddressingMode,
 }
 
 // <ea>
@@ -738,6 +756,41 @@ impl Decoder {
                 bytes.extend(mode.to_bytes());
                 InstructionKind::Pea { mode }
             }
+            InstructionKind::Lea { src, dst } => {
+                let src = self.resolve_ea(src, start + 2, None)?;
+                bytes.extend(src.to_bytes());
+                InstructionKind::Lea { src, dst }
+            }
+            InstructionKind::Chk {
+                size,
+                src,
+                data_reg,
+            } => {
+                let src = self.resolve_ea(src, start + 2, Some(size))?;
+                bytes.extend(src.to_bytes());
+                InstructionKind::Chk {
+                    size,
+                    src,
+                    data_reg,
+                }
+            }
+            InstructionKind::Movem(Movem {
+                size,
+                direction,
+                mode,
+                ..
+            }) => {
+                let register_mask = self.memory.read_word(start + 2)?;
+                bytes.extend(register_mask.to_be_bytes());
+                let mode = self.resolve_ea(mode, start + 4, None)?;
+                bytes.extend(mode.to_bytes());
+                InstructionKind::Movem(Movem {
+                    size,
+                    direction,
+                    register_mask,
+                    mode,
+                })
+            }
         };
 
         let instruction = Instruction {
@@ -817,8 +870,8 @@ impl Decoder {
                         }
                     }
                 }
-                // Tas/Tst
-                if top_reg == 0b101 {
+                // Tas/Tst (but not LEA which has opmode=111)
+                if top_reg == 0b101 && opmode != 0b111 {
                     match size_bits == 0b11 {
                         // Tas <ea>
                         true => {
@@ -856,7 +909,10 @@ impl Decoder {
                     } else {
                         UspDirection::UspToReg
                     };
-                    return Ok(InstructionKind::MoveUsp { addr_reg, direction });
+                    return Ok(InstructionKind::MoveUsp {
+                        addr_reg,
+                        direction,
+                    });
                 }
                 // NBCD: 0100 1000 00 eeeeee
                 // SWAP: 0100 1000 01 000 rrr
@@ -887,6 +943,40 @@ impl Decoder {
                         _ => unreachable!(),
                     };
                     return Ok(InstructionKind::Ext { data_reg, mode });
+                }
+                // LEA: 0100 aaa 111 eeeeee
+                if opmode == 0b111 {
+                    let dst = AddrReg::from_bits(top_reg)?;
+                    let src = effective_address(ea_bits)?;
+                    return Ok(InstructionKind::Lea { src, dst });
+                }
+                // CHK: 0100 ddd ss0 eeeeee (ss: 11=word, 10=long)
+                if opmode == 0b110 || opmode == 0b100 {
+                    let data_reg = DataReg::from_bits(top_reg)?;
+                    let size = match opmode {
+                        0b110 => Size::Word,
+                        0b100 => Size::Long,
+                        _ => unreachable!(),
+                    };
+                    let src = effective_address(ea_bits)?;
+                    return Ok(InstructionKind::Chk {
+                        size,
+                        src,
+                        data_reg,
+                    });
+                }
+                // MOVEM: 0100 1d00 1s eeeeee
+                // d=0 (reg to mem): op_nibble=1000, d=1 (mem to reg): op_nibble=1100
+                if matches!(op_nibble, 0b1000 | 0b1100) && size_bits >= 0b10 {
+                    let direction = DataDir::from_bit(bit_range(opcode, 10, 11))?;
+                    let size = Size::from_wl_bit(six_seven)?;
+                    let mode = effective_address(ea_bits)?;
+                    return Ok(InstructionKind::Movem(Movem {
+                        size,
+                        direction,
+                        register_mask: 0, // resolved later
+                        mode,
+                    }));
                 }
                 match op_nibble {
                     0b0000 | 0b0010 | 0b0100 | 0b0110 => {
@@ -1048,7 +1138,10 @@ impl Decoder {
                 }
                 // Ori/Andi/Subi/Addi/Eori/Cmpi #imm, <ea>
                 // 0000 oooo ss eeeeee (oooo: 0000=ORI, 0010=ANDI, 0100=SUBI, 0110=ADDI, 1010=EORI, 1100=CMPI)
-                if matches!(op_nibble, 0b0000 | 0b0010 | 0b0100 | 0b0110 | 0b1010 | 0b1100) {
+                if matches!(
+                    op_nibble,
+                    0b0000 | 0b0010 | 0b0100 | 0b0110 | 0b1010 | 0b1100
+                ) {
                     let size = Size::from_size_bits(size_bits)?;
                     let mode = effective_address(ea_bits)?;
                     // Immediate value will be read during resolve
@@ -1425,11 +1518,20 @@ impl From<u8> for Condition {
     }
 }
 
-#[allow(unused)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DataDir {
-    RegToMem, // 0 1
-    MemToReg, // 1 0
+    RegToMem, // 0
+    MemToReg, // 1
+}
+
+impl DataDir {
+    pub fn from_bit(bit: u8) -> Result<Self> {
+        match bit {
+            0 => Ok(DataDir::RegToMem),
+            1 => Ok(DataDir::MemToReg),
+            _ => bail!("Invalid DataDir bit: {bit}"),
+        }
+    }
 }
 
 #[allow(unused)]

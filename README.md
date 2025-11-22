@@ -64,3 +64,7 @@ The following instructions are currently supported by the decoder:
 - `nbcd`
 - `swap`
 - `pea`
+
+- `movem`
+- `lea`
+- `chk`

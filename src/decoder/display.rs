@@ -1,7 +1,8 @@
 use super::{
-    AddrReg, AddressingMode, BitOp, BitOpImm, BitOpReg, DataReg, EffectiveAddress, ExtMode,
-    Immediate, ImmOp, Instruction, InstructionKind, Movep, MovepDirection, QuickOp, RightOrLeft,
-    Shift, ShiftCount, ShiftEa, ShiftReg, Size, Sub, Subx, UnaryOp, UspDirection,
+    AddrReg, AddressingMode, BitOp, BitOpImm, BitOpReg, DataDir, DataReg, EffectiveAddress,
+    ExtMode, Immediate, ImmOp, Instruction, InstructionKind, Movem, Movep, MovepDirection,
+    QuickOp, RightOrLeft, Shift, ShiftCount, ShiftEa, ShiftReg, Size, Sub, Subx, UnaryOp,
+    UspDirection,
 };
 use crate::decoder::Add;
 use std::fmt;
@@ -84,6 +85,77 @@ impl fmt::Display for Movep {
             }
         }
     }
+}
+
+impl fmt::Display for Movem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let reg_list = format_register_mask(self.register_mask, &self.mode, self.direction);
+        match self.direction {
+            DataDir::RegToMem => write!(f, "movem{} {}, {}", self.size, reg_list, self.mode),
+            DataDir::MemToReg => write!(f, "movem{} {}, {}", self.size, self.mode, reg_list),
+        }
+    }
+}
+
+// Format register mask for MOVEM instruction
+// For predecrement mode with RegToMem, the mask is reversed
+fn format_register_mask(mask: u16, mode: &AddressingMode, direction: DataDir) -> String {
+    use super::EffectiveAddress;
+
+    // For predecrement addressing mode with register-to-memory, the mask is reversed
+    let mask = match (&mode.ea, direction) {
+        (EffectiveAddress::AddrPreDecr(_), DataDir::RegToMem) => mask.reverse_bits(),
+        _ => mask,
+    };
+
+    let mut parts = Vec::new();
+
+    // Data registers (bits 0-7 -> D0-D7)
+    let d_regs = format_reg_range(mask & 0xFF, "d");
+    if !d_regs.is_empty() {
+        parts.push(d_regs);
+    }
+
+    // Address registers (bits 8-15 -> A0-A7)
+    let a_regs = format_reg_range((mask >> 8) & 0xFF, "a");
+    if !a_regs.is_empty() {
+        parts.push(a_regs);
+    }
+
+    if parts.is_empty() {
+        "#0".to_string()
+    } else {
+        parts.join("/")
+    }
+}
+
+// Format a range of registers (e.g., "d0-d3" or "d0/d2/d4")
+fn format_reg_range(mask: u16, prefix: &str) -> String {
+    let mut parts = Vec::new();
+    let mut i = 0;
+
+    while i < 8 {
+        if mask & (1 << i) != 0 {
+            let start = i;
+            while i < 8 && mask & (1 << i) != 0 {
+                i += 1;
+            }
+            let end = i - 1;
+
+            if start == end {
+                parts.push(format!("%{}{}", prefix, start));
+            } else if end == start + 1 {
+                parts.push(format!("%{}{}", prefix, start));
+                parts.push(format!("%{}{}", prefix, end));
+            } else {
+                parts.push(format!("%{}{}-%{}{}", prefix, start, prefix, end));
+            }
+        } else {
+            i += 1;
+        }
+    }
+
+    parts.join("/")
 }
 
 impl fmt::Display for InstructionKind {
@@ -193,6 +265,11 @@ impl fmt::Display for InstructionKind {
             InstructionKind::Nbcd { mode } => write!(f, "nbcd {mode}"),
             InstructionKind::Swap { data_reg } => write!(f, "swap {data_reg}"),
             InstructionKind::Pea { mode } => write!(f, "pea {mode}"),
+            InstructionKind::Lea { src, dst } => write!(f, "lea {src}, {dst}"),
+            InstructionKind::Chk { size, src, data_reg } => {
+                write!(f, "chk{size} {src}, {data_reg}")
+            }
+            InstructionKind::Movem(movem) => write!(f, "{movem}"),
         }
     }
 }
