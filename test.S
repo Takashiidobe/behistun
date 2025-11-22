@@ -1,12 +1,18 @@
 .globl _start
 _start:
-	sub.w %d1, %d2
-	sub.l (%a0), %d3
-	sub.b %d5, (%a0)
-	subx.w %d1, %d2
-	subx.l %d0, %d3
-	suba.w (%a0), %a2
-	suba.l (%a1), %a2
+	andi.b #0x0f, %d0
+	andi.w #0x1234, (%a0)
+	andi.l #0x12345678, %d1
+	subi.b #5, %d2
+	subi.w #100, (%a1)
+	addi.l #0xaabbccdd, %d3
+	| sub.w %d1, %d2
+	| sub.l (%a0), %d3
+	| sub.b %d5, (%a0)
+	| subx.w %d1, %d2
+	| subx.l %d0, %d3
+	| suba.w (%a0), %a2
+	| suba.l (%a1), %a2
 	| addq.b #1, %d0
 	| addq.w #4, (%a0)
 	| addq.l #8, 8(%a1)

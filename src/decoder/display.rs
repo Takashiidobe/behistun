@@ -1,7 +1,7 @@
 use super::{
     AddrReg, AddressingMode, BitOp, BitOpImm, BitOpReg, DataReg, EffectiveAddress, Immediate,
-    Instruction, InstructionKind, QuickOp, RightOrLeft, Shift, ShiftCount, ShiftEa, ShiftReg, Size,
-    Sub, Subx, UnaryOp,
+    ImmOp, Instruction, InstructionKind, QuickOp, RightOrLeft, Shift, ShiftCount, ShiftEa,
+    ShiftReg, Size, Sub, Subx, UnaryOp,
 };
 use crate::decoder::Add;
 use std::fmt;
@@ -63,6 +63,12 @@ impl fmt::Display for BitOp {
 impl fmt::Display for QuickOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} #{}, {}", self.size, self.data, self.mode)
+    }
+}
+
+impl fmt::Display for ImmOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}, {}", self.size, self.imm, self.mode)
     }
 }
 
@@ -142,6 +148,9 @@ impl fmt::Display for InstructionKind {
                     write!(f, "subx{size} -({src}), -({dst})")
                 }
             },
+            InstructionKind::Andi(imm_op) => write!(f, "andi{}", imm_op),
+            InstructionKind::Subi(imm_op) => write!(f, "subi{}", imm_op),
+            InstructionKind::Addi(imm_op) => write!(f, "addi{}", imm_op),
         }
     }
 }

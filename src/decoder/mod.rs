@@ -65,6 +65,9 @@ pub enum InstructionKind {
     },
     Sub(Sub),
     Subx(Subx),
+    Andi(ImmOp),
+    Subi(ImmOp),
+    Addi(ImmOp),
 }
 
 // <ea>,Dn
@@ -174,6 +177,13 @@ pub struct BitOpReg {
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct QuickOp {
     pub data: u8,
+    pub size: Size,
+    pub mode: AddressingMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub struct ImmOp {
+    pub imm: Immediate,
     pub size: Size,
     pub mode: AddressingMode,
 }
@@ -365,6 +375,40 @@ impl Decoder {
         })
     }
 
+    fn resolve_imm_op(
+        &self,
+        imm_op: ImmOp,
+        start: usize,
+        bytes: &mut Vec<u8>,
+    ) -> Result<ImmOp> {
+        // Read immediate value based on size
+        let (imm, imm_len) = match imm_op.size {
+            Size::Byte => {
+                let word = self.memory.read_word(start + 2)?;
+                bytes.extend(word.to_be_bytes());
+                (Immediate::Byte(word as u8), 2)
+            }
+            Size::Word => {
+                let word = self.memory.read_word(start + 2)?;
+                bytes.extend(word.to_be_bytes());
+                (Immediate::Word(word), 2)
+            }
+            Size::Long => {
+                let long = self.memory.read_long(start + 2)?;
+                bytes.extend(long.to_be_bytes());
+                (Immediate::Long(long), 4)
+            }
+        };
+        // Resolve EA after the immediate value
+        let mode = self.resolve_ea(imm_op.mode, start + 2 + imm_len, Some(imm_op.size))?;
+        bytes.extend(mode.to_bytes());
+        Ok(ImmOp {
+            imm,
+            size: imm_op.size,
+            mode,
+        })
+    }
+
     fn decode_instruction(&self, start: usize) -> Result<Instruction> {
         let opcode = self.memory.read_word(start)?;
         let instr_kind = Self::get_op_kind(opcode)?;
@@ -518,6 +562,18 @@ impl Decoder {
                 }
             },
             InstructionKind::Subx(_) => instr_kind,
+            InstructionKind::Andi(imm_op) => {
+                let imm_op = self.resolve_imm_op(imm_op, start, &mut bytes)?;
+                InstructionKind::Andi(imm_op)
+            }
+            InstructionKind::Subi(imm_op) => {
+                let imm_op = self.resolve_imm_op(imm_op, start, &mut bytes)?;
+                InstructionKind::Subi(imm_op)
+            }
+            InstructionKind::Addi(imm_op) => {
+                let imm_op = self.resolve_imm_op(imm_op, start, &mut bytes)?;
+                InstructionKind::Addi(imm_op)
+            }
         };
 
         let instruction = Instruction {
@@ -734,6 +790,24 @@ impl Decoder {
                         0b101 => Ok(InstructionKind::Bchg(bit_op)),
                         0b110 => Ok(InstructionKind::Bclr(bit_op)),
                         0b111 => Ok(InstructionKind::Bset(bit_op)),
+                        _ => unreachable!(),
+                    };
+                }
+                // Andi/Subi/Addi #imm, <ea>
+                // 0000 oooo ss eeeeee (oooo: 0010=ANDI, 0100=SUBI, 0110=ADDI)
+                if matches!(op_nibble, 0b0010 | 0b0100 | 0b0110) {
+                    let size = Size::from_size_bits(size_bits)?;
+                    let mode = effective_address(ea_bits)?;
+                    // Immediate value will be read during resolve
+                    let imm_op = ImmOp {
+                        imm: Immediate::Byte(0),
+                        size,
+                        mode,
+                    };
+                    return match op_nibble {
+                        0b0010 => Ok(InstructionKind::Andi(imm_op)),
+                        0b0100 => Ok(InstructionKind::Subi(imm_op)),
+                        0b0110 => Ok(InstructionKind::Addi(imm_op)),
                         _ => unreachable!(),
                     };
                 }

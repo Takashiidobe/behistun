@@ -46,3 +46,7 @@ The following instructions are currently supported by the decoder:
 - `sub`
 - `suba`
 - `subx`
+
+- `addi`
+- `andi`
+- `subi`
