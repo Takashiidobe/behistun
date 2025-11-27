@@ -3958,40 +3958,40 @@ impl Cpu {
             222 => bail!("tkill not yet implemented"),
 
             // setxattr(path, name, value, size, flags)
-            223 => bail!("setxattr not yet implemented"),
+            223 => self.sys_setxattr()?,
 
             // lsetxattr(path, name, value, size, flags)
-            224 => bail!("lsetxattr not yet implemented"),
+            224 => self.sys_lsetxattr()?,
 
             // fsetxattr(fd, name, value, size, flags)
-            225 => bail!("fsetxattr not yet implemented"),
+            225 => self.sys_fsetxattr()?,
 
             // getxattr(path, name, value, size)
-            226 => bail!("getxattr not yet implemented"),
+            226 => self.sys_getxattr()?,
 
             // lgetxattr(path, name, value, size)
-            227 => bail!("lgetxattr not yet implemented"),
+            227 => self.sys_lgetxattr()?,
 
             // fgetxattr(fd, name, value, size)
-            228 => bail!("fgetxattr not yet implemented"),
+            228 => self.sys_fgetxattr()?,
 
             // listxattr(path, list, size)
-            229 => bail!("listxattr not yet implemented"),
+            229 => self.sys_listxattr()?,
 
             // llistxattr(path, list, size)
-            230 => bail!("llistxattr not yet implemented"),
+            230 => self.sys_llistxattr()?,
 
             // flistxattr(fd, list, size)
-            231 => bail!("flistxattr not yet implemented"),
+            231 => self.sys_flistxattr()?,
 
             // removexattr(path, name)
-            232 => bail!("removexattr not yet implemented"),
+            232 => self.sys_removexattr()?,
 
             // lremovexattr(path, name)
-            233 => bail!("lremovexattr not yet implemented"),
+            233 => self.sys_lremovexattr()?,
 
             // fremovexattr(fd, name)
-            234 => bail!("fremovexattr not yet implemented"),
+            234 => self.sys_fremovexattr()?,
 
             // futex(uaddr, op, val, timeout, uaddr2, val3) - m68k 235
             235 => self.sys_futex()?,
@@ -8065,6 +8065,295 @@ impl Cpu {
         use std::sync::atomic::{Ordering, fence};
         fence(Ordering::SeqCst);
         Ok(0)
+    }
+
+    /// setxattr(path, name, value, size, flags)
+    fn sys_setxattr(&mut self) -> Result<i64> {
+        let path_ptr = self.data_regs[1] as usize;
+        let name_ptr = self.data_regs[2] as usize;
+        let value_ptr = self.data_regs[3] as usize;
+        let size = self.data_regs[4] as usize;
+        let flags = self.data_regs[5] as i32;
+
+        let path = self.read_c_string(path_ptr)?;
+        let name = self.read_c_string(name_ptr)?;
+        let value = if value_ptr != 0 && size > 0 {
+            self.memory
+                .guest_to_host(value_ptr, size)
+                .ok_or_else(|| anyhow!("invalid xattr value buffer"))?
+        } else {
+            std::ptr::null()
+        };
+
+        let res = unsafe {
+            libc::setxattr(
+                path.as_ptr() as *const libc::c_char,
+                name.as_ptr() as *const libc::c_char,
+                value as *const libc::c_void,
+                size,
+                flags,
+            )
+        };
+        Ok(Self::libc_to_kernel(res as i64))
+    }
+
+    /// lsetxattr(path, name, value, size, flags)
+    fn sys_lsetxattr(&mut self) -> Result<i64> {
+        let path_ptr = self.data_regs[1] as usize;
+        let name_ptr = self.data_regs[2] as usize;
+        let value_ptr = self.data_regs[3] as usize;
+        let size = self.data_regs[4] as usize;
+        let flags = self.data_regs[5] as i32;
+
+        let path = self.read_c_string(path_ptr)?;
+        let name = self.read_c_string(name_ptr)?;
+        let value = if value_ptr != 0 && size > 0 {
+            self.memory
+                .guest_to_host(value_ptr, size)
+                .ok_or_else(|| anyhow!("invalid xattr value buffer"))?
+        } else {
+            std::ptr::null()
+        };
+
+        let res = unsafe {
+            libc::lsetxattr(
+                path.as_ptr() as *const libc::c_char,
+                name.as_ptr() as *const libc::c_char,
+                value as *const libc::c_void,
+                size,
+                flags,
+            )
+        };
+        Ok(Self::libc_to_kernel(res as i64))
+    }
+
+    /// fsetxattr(fd, name, value, size, flags)
+    fn sys_fsetxattr(&mut self) -> Result<i64> {
+        let fd = self.data_regs[1] as libc::c_int;
+        let name_ptr = self.data_regs[2] as usize;
+        let value_ptr = self.data_regs[3] as usize;
+        let size = self.data_regs[4] as usize;
+        let flags = self.data_regs[5] as i32;
+
+        let name = self.read_c_string(name_ptr)?;
+        let value = if value_ptr != 0 && size > 0 {
+            self.memory
+                .guest_to_host(value_ptr, size)
+                .ok_or_else(|| anyhow!("invalid xattr value buffer"))?
+        } else {
+            std::ptr::null()
+        };
+
+        let res = unsafe {
+            libc::fsetxattr(
+                fd,
+                name.as_ptr() as *const libc::c_char,
+                value as *const libc::c_void,
+                size,
+                flags,
+            )
+        };
+        Ok(Self::libc_to_kernel(res as i64))
+    }
+
+    /// getxattr(path, name, value, size)
+    fn sys_getxattr(&mut self) -> Result<i64> {
+        let path_ptr = self.data_regs[1] as usize;
+        let name_ptr = self.data_regs[2] as usize;
+        let value_ptr = self.data_regs[3] as usize;
+        let size = self.data_regs[4] as usize;
+
+        let path = self.read_c_string(path_ptr)?;
+        let name = self.read_c_string(name_ptr)?;
+        let buf_host = if value_ptr != 0 && size > 0 {
+            self.memory
+                .guest_to_host_mut(value_ptr, size)
+                .ok_or_else(|| anyhow!("invalid xattr buffer"))?
+        } else {
+            std::ptr::null_mut()
+        };
+
+        let res = unsafe {
+            libc::getxattr(
+                path.as_ptr() as *const libc::c_char,
+                name.as_ptr() as *const libc::c_char,
+                buf_host as *mut libc::c_void,
+                size,
+            )
+        };
+        Ok(Self::libc_to_kernel(res as i64))
+    }
+
+    /// lgetxattr(path, name, value, size)
+    fn sys_lgetxattr(&mut self) -> Result<i64> {
+        let path_ptr = self.data_regs[1] as usize;
+        let name_ptr = self.data_regs[2] as usize;
+        let value_ptr = self.data_regs[3] as usize;
+        let size = self.data_regs[4] as usize;
+
+        let path = self.read_c_string(path_ptr)?;
+        let name = self.read_c_string(name_ptr)?;
+        let buf_host = if value_ptr != 0 && size > 0 {
+            self.memory
+                .guest_to_host_mut(value_ptr, size)
+                .ok_or_else(|| anyhow!("invalid xattr buffer"))?
+        } else {
+            std::ptr::null_mut()
+        };
+
+        let res = unsafe {
+            libc::lgetxattr(
+                path.as_ptr() as *const libc::c_char,
+                name.as_ptr() as *const libc::c_char,
+                buf_host as *mut libc::c_void,
+                size,
+            )
+        };
+        Ok(Self::libc_to_kernel(res as i64))
+    }
+
+    /// fgetxattr(fd, name, value, size)
+    fn sys_fgetxattr(&mut self) -> Result<i64> {
+        let fd = self.data_regs[1] as libc::c_int;
+        let name_ptr = self.data_regs[2] as usize;
+        let value_ptr = self.data_regs[3] as usize;
+        let size = self.data_regs[4] as usize;
+
+        let name = self.read_c_string(name_ptr)?;
+        let buf_host = if value_ptr != 0 && size > 0 {
+            self.memory
+                .guest_to_host_mut(value_ptr, size)
+                .ok_or_else(|| anyhow!("invalid xattr buffer"))?
+        } else {
+            std::ptr::null_mut()
+        };
+
+        let res = unsafe {
+            libc::fgetxattr(
+                fd,
+                name.as_ptr() as *const libc::c_char,
+                buf_host as *mut libc::c_void,
+                size,
+            )
+        };
+        Ok(Self::libc_to_kernel(res as i64))
+    }
+
+    /// listxattr(path, list, size)
+    fn sys_listxattr(&mut self) -> Result<i64> {
+        let path_ptr = self.data_regs[1] as usize;
+        let list_ptr = self.data_regs[2] as usize;
+        let size = self.data_regs[3] as usize;
+
+        let path = self.read_c_string(path_ptr)?;
+        let buf_host = if list_ptr != 0 && size > 0 {
+            self.memory
+                .guest_to_host_mut(list_ptr, size)
+                .ok_or_else(|| anyhow!("invalid xattr list buffer"))?
+        } else {
+            std::ptr::null_mut()
+        };
+
+        let res = unsafe {
+            libc::listxattr(
+                path.as_ptr() as *const libc::c_char,
+                buf_host as *mut libc::c_char,
+                size,
+            )
+        };
+        Ok(Self::libc_to_kernel(res as i64))
+    }
+
+    /// llistxattr(path, list, size)
+    fn sys_llistxattr(&mut self) -> Result<i64> {
+        let path_ptr = self.data_regs[1] as usize;
+        let list_ptr = self.data_regs[2] as usize;
+        let size = self.data_regs[3] as usize;
+
+        let path = self.read_c_string(path_ptr)?;
+        let buf_host = if list_ptr != 0 && size > 0 {
+            self.memory
+                .guest_to_host_mut(list_ptr, size)
+                .ok_or_else(|| anyhow!("invalid xattr list buffer"))?
+        } else {
+            std::ptr::null_mut()
+        };
+
+        let res = unsafe {
+            libc::llistxattr(
+                path.as_ptr() as *const libc::c_char,
+                buf_host as *mut libc::c_char,
+                size,
+            )
+        };
+        Ok(Self::libc_to_kernel(res as i64))
+    }
+
+    /// flistxattr(fd, list, size)
+    fn sys_flistxattr(&mut self) -> Result<i64> {
+        let fd = self.data_regs[1] as libc::c_int;
+        let list_ptr = self.data_regs[2] as usize;
+        let size = self.data_regs[3] as usize;
+
+        let buf_host = if list_ptr != 0 && size > 0 {
+            self.memory
+                .guest_to_host_mut(list_ptr, size)
+                .ok_or_else(|| anyhow!("invalid xattr list buffer"))?
+        } else {
+            std::ptr::null_mut()
+        };
+
+        let res = unsafe {
+            libc::flistxattr(fd, buf_host as *mut libc::c_char, size)
+        };
+        Ok(Self::libc_to_kernel(res as i64))
+    }
+
+    /// removexattr(path, name)
+    fn sys_removexattr(&mut self) -> Result<i64> {
+        let path_ptr = self.data_regs[1] as usize;
+        let name_ptr = self.data_regs[2] as usize;
+
+        let path = self.read_c_string(path_ptr)?;
+        let name = self.read_c_string(name_ptr)?;
+
+        let res = unsafe {
+            libc::removexattr(
+                path.as_ptr() as *const libc::c_char,
+                name.as_ptr() as *const libc::c_char,
+            )
+        };
+        Ok(Self::libc_to_kernel(res as i64))
+    }
+
+    /// lremovexattr(path, name)
+    fn sys_lremovexattr(&mut self) -> Result<i64> {
+        let path_ptr = self.data_regs[1] as usize;
+        let name_ptr = self.data_regs[2] as usize;
+
+        let path = self.read_c_string(path_ptr)?;
+        let name = self.read_c_string(name_ptr)?;
+
+        let res = unsafe {
+            libc::lremovexattr(
+                path.as_ptr() as *const libc::c_char,
+                name.as_ptr() as *const libc::c_char,
+            )
+        };
+        Ok(Self::libc_to_kernel(res as i64))
+    }
+
+    /// fremovexattr(fd, name)
+    fn sys_fremovexattr(&mut self) -> Result<i64> {
+        let fd = self.data_regs[1] as libc::c_int;
+        let name_ptr = self.data_regs[2] as usize;
+
+        let name = self.read_c_string(name_ptr)?;
+
+        let res = unsafe {
+            libc::fremovexattr(fd, name.as_ptr() as *const libc::c_char)
+        };
+        Ok(Self::libc_to_kernel(res as i64))
     }
 
     /// setxattrat(dirfd, path, name, value, size, flags)
