@@ -26,7 +26,18 @@ tests in `test-files`.
 ## Features
 
 A good chunk of linux syscalls are supported. About 300 or so are currently
-supported. 
+supported. As well, all of the 68000 and most of the 68020 instruction
+set are supported, except for the coprocessor instructions.
+
+## Credits
+
+Decoding instructions couldn't be done without reading this great guide
+at [goldencrystal.free.fr](http://goldencrystal.free.fr/M68kOpcodes-v2.3.pdf) 
+that explains how each 68000 opcode is read and deconstructed. As well,
+qemu for having a reference implementation to easily test against and
+[crosstool](https://crosstool-ng.github.io/) for building compilers + 
+[uclibc-ng](https://uclibc-ng.org/) for having a libc that supports
+68020.
 
 ## Developing
 
