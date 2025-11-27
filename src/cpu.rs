@@ -4297,7 +4297,7 @@ impl Cpu {
             341 => bail!("open_by_handle_at not yet implemented"),
 
             // clock_adjtime(clk_id, buf)
-            342 => bail!("clock_adjtime not yet implemented"),
+            342 => self.sys_clock_adjtime()?,
 
             // syncfs(fd) - m68k
             343 => self.sys_passthrough(x86_num, 1),
@@ -4478,7 +4478,7 @@ impl Cpu {
             404 => self.sys_clock_settime()?,
 
             // clock_adjtime64(clk_id, buf)
-            405 => bail!("clock_adjtime64 not yet implemented"),
+            405 => self.sys_clock_adjtime()?,
 
             // clock_getres_time64(clockid, timespec) -> clock_getres
             406 => self.sys_clock_getres()?,
@@ -4486,11 +4486,11 @@ impl Cpu {
             // clock_nanosleep_time64(clockid, flags, request, remain) -> clock_nanosleep
             407 => self.sys_clock_nanosleep()?,
 
-            // timer_gettime64(timerid, curr_value)
-            408 => bail!("timer_gettime64 not yet implemented"),
+            // timer_gettime64(timerid, curr_value) -> timer_gettime
+            408 => self.sys_passthrough(x86_num, 2),
 
-            // timer_settime64(timerid, flags, new_value, old_value)
-            409 => bail!("timer_settime64 not yet implemented"),
+            // timer_settime64(timerid, flags, new_value, old_value) -> timer_settime
+            409 => self.sys_passthrough(x86_num, 4),
 
             // timerfd_gettime64(fd, curr_value) - m68k 410
             410 => self.sys_timerfd_gettime()?,
@@ -4498,8 +4498,8 @@ impl Cpu {
             // timerfd_settime64(fd, flags, new_value, old_value) - m68k 411
             411 => self.sys_timerfd_settime()?,
 
-            // utimensat_time64(dirfd, path, times, flags)
-            412 => bail!("utimensat_time64 not yet implemented"),
+            // utimensat_time64(dirfd, path, times, flags) -> utimensat
+            412 => self.sys_utimensat()?,
 
             // pselect6_time64(nfds, readfds, writefds, exceptfds, timeout, sigmask)
             413 => self.sys_pselect6()?,
@@ -6635,6 +6635,23 @@ impl Cpu {
         // The test just checks dispatch, so we'll attempt the syscall and
         // expect it to fail with EPERM (typical for unprivileged users).
         // Just validate that we can read some bytes from the structure.
+        if tx_addr != 0 {
+            // Validate the pointer by reading first few bytes
+            let _ = self.memory.read_data(tx_addr, 16)?;
+        }
+
+        // Return EPERM as would happen for unprivileged access
+        Ok(-(libc::EPERM as i64))
+    }
+
+    /// clock_adjtime(clk_id, buf) / clock_adjtime64(clk_id, buf)
+    fn sys_clock_adjtime(&mut self) -> Result<i64> {
+        let _clk_id = self.data_regs[1] as libc::clockid_t;
+        let tx_addr = self.data_regs[2] as usize;
+
+        // struct timex is complex with different layouts between architectures.
+        // Like adjtimex, validate the pointer and return EPERM since the guest
+        // shouldn't be able to adjust the host's clock.
         if tx_addr != 0 {
             // Validate the pointer by reading first few bytes
             let _ = self.memory.read_data(tx_addr, 16)?;
