@@ -1,6 +1,7 @@
 pub mod copy_file_range;
 pub mod fdatasync;
 pub mod fsync;
+pub mod llseek;
 pub mod pipe;
 pub mod pread64;
 pub mod preadv;
@@ -11,7 +12,9 @@ pub mod readahead;
 pub mod readv;
 pub mod sendfile;
 pub mod sendfile64;
+pub mod splice;
 pub mod sync;
 pub mod sync_file_range;
+pub mod vmsplice;
 pub mod write;
 pub mod writev;
