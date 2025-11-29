@@ -4,11 +4,8 @@ use crate::Cpu;
 
 impl Cpu {
     pub(crate) fn sys_fsetxattr(&mut self) -> Result<i64> {
-        let fd = self.data_regs[1] as libc::c_int;
-        let name_ptr = self.data_regs[2] as usize;
-        let value_ptr = self.data_regs[3] as usize;
-        let size = self.data_regs[4] as usize;
-        let flags = self.data_regs[5] as i32;
+        let (fd, name_ptr, value_ptr, size, flags): (libc::c_int, usize, usize, usize, i32) =
+            self.get_args();
 
         let name = self.read_c_string(name_ptr)?;
         let value = if value_ptr != 0 && size > 0 {

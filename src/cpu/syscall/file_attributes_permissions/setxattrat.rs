@@ -4,12 +4,14 @@ use crate::Cpu;
 
 impl Cpu {
     pub(crate) fn sys_setxattrat(&mut self) -> Result<i64> {
-        let dirfd = self.data_regs[1] as libc::c_int;
-        let path_ptr = self.data_regs[2] as usize;
-        let name_ptr = self.data_regs[3] as usize;
-        let value_ptr = self.data_regs[4] as usize;
-        let size = self.data_regs[5] as usize;
-        let flags = self.data_regs[6] as i32;
+        let (dirfd, path_ptr, name_ptr, value_ptr, size, flags): (
+            libc::c_int,
+            usize,
+            usize,
+            usize,
+            usize,
+            i32,
+        ) = self.get_args();
 
         let path = self.read_c_string(path_ptr)?;
         let name = self.read_c_string(name_ptr)?;

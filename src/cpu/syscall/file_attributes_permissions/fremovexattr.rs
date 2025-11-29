@@ -3,8 +3,7 @@ use anyhow::Result;
 
 impl Cpu {
     pub(crate) fn sys_fremovexattr(&mut self) -> Result<i64> {
-        let fd = self.data_regs[1] as libc::c_int;
-        let name_ptr = self.data_regs[2] as usize;
+        let (fd, name_ptr): (libc::c_int, usize) = self.get_args();
 
         let name = self.read_c_string(name_ptr)?;
 

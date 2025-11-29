@@ -4,10 +4,7 @@ use crate::Cpu;
 
 impl Cpu {
     pub(crate) fn sys_lgetxattr(&mut self) -> Result<i64> {
-        let path_ptr = self.data_regs[1] as usize;
-        let name_ptr = self.data_regs[2] as usize;
-        let value_ptr = self.data_regs[3] as usize;
-        let size = self.data_regs[4] as usize;
+        let (path_ptr, name_ptr, value_ptr, size): (usize, usize, usize, usize) = self.get_args();
 
         let path = self.read_c_string(path_ptr)?;
         let name = self.read_c_string(name_ptr)?;
