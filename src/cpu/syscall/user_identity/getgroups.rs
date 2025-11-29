@@ -5,8 +5,7 @@ use crate::Cpu;
 impl Cpu {
     /// getgroups(size, list)
     pub(crate) fn sys_getgroups(&mut self) -> Result<i64> {
-        let size = self.data_regs[1] as i32;
-        let list_addr = self.data_regs[2] as usize;
+        let (size, list_addr): (i32, usize) = self.get_args();
         if size == 0 {
             return Ok(unsafe { libc::getgroups(0, std::ptr::null_mut()) as i64 });
         }
