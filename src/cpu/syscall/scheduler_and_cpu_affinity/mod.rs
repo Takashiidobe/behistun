@@ -1,13 +1,5 @@
 pub mod getcpu;
-pub mod membarrier;
-pub mod sched_get_priority_max;
-pub mod sched_get_priority_min;
 pub mod sched_getparam;
-pub mod sched_getscheduler;
 pub mod sched_rr_get_interval;
-pub mod sched_rr_get_interval_time64;
-pub mod sched_setaffinity;
 pub mod sched_setparam;
 pub mod sched_setscheduler;
-pub mod sched_yield;
-pub mod setns;

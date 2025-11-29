@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use super::{CapUserData, CapUserHeader};
 use crate::Cpu;
 
 impl Cpu {
@@ -15,27 +16,11 @@ impl Cpu {
         let version = self.memory.read_long(hdrp_addr)?;
         let pid = self.memory.read_long(hdrp_addr + 4)? as i32;
 
-        // Build host header
-        #[repr(C)]
-        struct CapUserHeader {
-            version: u32,
-            pid: i32,
-        }
-
         let mut hdr = CapUserHeader { version, pid };
 
         // Determine how many data structs we need based on version
         // Version 1: 1 data struct, Version 2/3: 2 data structs
         let data_count = if version == 0x19980330 { 1 } else { 2 };
-
-        // Prepare data buffer
-        #[repr(C)]
-        #[derive(Copy, Clone)]
-        struct CapUserData {
-            effective: u32,
-            permitted: u32,
-            inheritable: u32,
-        }
 
         let mut data: [CapUserData; 2] = [CapUserData {
             effective: 0,
