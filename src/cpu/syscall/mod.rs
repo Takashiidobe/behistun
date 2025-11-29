@@ -1,3 +1,5 @@
+mod file_io_basic;
+mod file_open_close;
 mod process_management;
 
 use std::ffi::CString;
@@ -2029,30 +2031,6 @@ impl Cpu {
         std::process::exit(0);
     }
 
-    /// read(fd, buf, count)
-    fn sys_read(&mut self) -> Result<i64> {
-        let fd = self.data_regs[1] as i32;
-        let buf = self.data_regs[2] as usize;
-        let count = self.data_regs[3] as usize;
-
-        let host_ptr = self.guest_mut_ptr(buf, count)?;
-
-        let result = unsafe { libc::read(fd, host_ptr, count) as i64 };
-        Ok(Self::libc_to_kernel(result))
-    }
-
-    /// write(fd, buf, count)
-    fn sys_write(&self) -> Result<i64> {
-        let fd = self.data_regs[1] as i32;
-        let buf = self.data_regs[2] as usize;
-        let count = self.data_regs[3] as usize;
-
-        let host_ptr = self.guest_const_ptr(buf, count)?;
-
-        let result = unsafe { libc::write(fd, host_ptr, count) as i64 };
-        Ok(Self::libc_to_kernel(result))
-    }
-
     fn build_iovecs(
         &mut self,
         base_addr: usize,
@@ -2134,18 +2112,6 @@ impl Cpu {
         // Returned in D0 only. Don't modify A0 or A6 - A6 is the frame pointer!
         self.data_regs[0] = tp;
         Ok(tp as i64)
-    }
-
-    /// open(path, flags, mode)
-    fn sys_open(&self) -> Result<i64> {
-        let path_addr = self.data_regs[1] as usize;
-        let m68k_flags = self.data_regs[2] as i32;
-        let mode = self.data_regs[3];
-
-        let path_cstr = self.guest_cstring(path_addr)?;
-        let flags = Self::translate_open_flags(m68k_flags);
-        let result = unsafe { libc::open(path_cstr.as_ptr(), flags, mode) as i64 };
-        Ok(Self::libc_to_kernel(result))
     }
 
     /// openat(dirfd, path, flags, mode)
@@ -5384,34 +5350,6 @@ impl Cpu {
         let result = unsafe { libc::syscall(446, ruleset_fd, flags) };
 
         Ok(Self::libc_to_kernel(result as i64))
-    }
-
-    /// waitpid(pid, status, options) - implemented via wait4 with NULL rusage
-    fn sys_waitpid(&mut self) -> Result<i64> {
-        // m68k ABI: D1=pid, D2=status*, D3=options
-        let pid = self.data_regs[1] as i32;
-        let status_addr = self.data_regs[2] as usize;
-        let options = self.data_regs[3] as i32;
-
-        let mut status: i32 = 0;
-        let result = unsafe {
-            libc::wait4(
-                pid,
-                if status_addr != 0 {
-                    &mut status
-                } else {
-                    std::ptr::null_mut()
-                },
-                options,
-                std::ptr::null_mut(),
-            )
-        };
-
-        if result > 0 && status_addr != 0 {
-            self.memory
-                .write_data(status_addr, &(status as u32).to_be_bytes())?;
-        }
-        Ok(result as i64)
     }
 
     /// sysinfo(info)
