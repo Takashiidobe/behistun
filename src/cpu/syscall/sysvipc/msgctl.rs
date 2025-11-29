@@ -4,9 +4,7 @@ use crate::Cpu;
 
 impl Cpu {
     pub(crate) fn sys_msgctl(&mut self) -> Result<i64> {
-        let msqid = self.data_regs[1] as i32;
-        let cmd = self.data_regs[2] as i32;
-        let buf_ptr = self.data_regs[3] as usize;
+        let (msqid, cmd, buf_ptr): (i32, i32, usize) = self.get_args();
 
         if cmd == libc::IPC_RMID || buf_ptr == 0 {
             let res =

@@ -5,9 +5,7 @@ use goblin::elf::program_header;
 
 impl Cpu {
     pub(crate) fn sys_shmat(&mut self) -> Result<i64> {
-        let shmid = self.data_regs[1] as i32;
-        let shmaddr_hint = self.data_regs[2] as usize;
-        let shmflg = self.data_regs[3] as i32;
+        let (shmid, shmaddr_hint, shmflg) = self.get_args();
 
         let host_ptr = unsafe { libc::shmat(shmid, std::ptr::null(), shmflg) as *mut u8 };
 

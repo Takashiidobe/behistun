@@ -6,11 +6,8 @@ use crate::Cpu;
 
 impl Cpu {
     pub(crate) fn sys_msgrcv(&mut self) -> Result<i64> {
-        let msqid = self.data_regs[1] as i32;
-        let msgp_guest = self.data_regs[2] as usize;
-        let msgsz = self.data_regs[3] as usize;
-        let msgtyp = self.data_regs[4] as i64;
-        let msgflg = self.data_regs[5] as i32;
+        let (msqid, msgp_guest, msgsz, msgtyp, msgflg): (i32, usize, usize, i32, i32) =
+            self.get_args();
 
         let total_size = 8 + msgsz;
         let mut host_buf = vec![0u8; total_size];

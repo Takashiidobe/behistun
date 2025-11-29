@@ -9,10 +9,7 @@ impl Cpu {
     ///   - struct semid_ds *buf (for IPC_STAT, IPC_SET)
     ///   - unsigned short *array (for GETALL, SETALL)
     pub(crate) fn sys_semctl(&mut self) -> Result<i64> {
-        let semid = self.data_regs[1] as i32;
-        let semnum = self.data_regs[2] as i32;
-        let cmd = self.data_regs[3] as i32;
-        let arg_val = self.data_regs[4] as usize; // Can be int or pointer depending on cmd
+        let (semid, semnum, cmd, arg_val): (i32, i32, i32, usize) = self.get_args();
 
         // Commands that don't need the 4th argument
         if cmd == libc::IPC_RMID {

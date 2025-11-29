@@ -4,7 +4,7 @@ use crate::Cpu;
 
 impl Cpu {
     pub(crate) fn sys_shmdt(&mut self) -> Result<i64> {
-        let guest_addr = self.data_regs[1] as usize;
+        let (guest_addr,) = self.get_args();
 
         let segment_idx = self
             .memory

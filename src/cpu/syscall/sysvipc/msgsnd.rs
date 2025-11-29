@@ -4,10 +4,7 @@ use crate::Cpu;
 
 impl Cpu {
     pub(crate) fn sys_msgsnd(&mut self) -> Result<i64> {
-        let msqid = self.data_regs[1] as i32;
-        let msgp_guest = self.data_regs[2] as usize;
-        let msgsz = self.data_regs[3] as usize;
-        let msgflg = self.data_regs[4] as i32;
+        let (msqid, msgp_guest, msgsz, msgflg): (i32, usize, usize, i32) = self.get_args();
 
         let mtype_m68k = self.memory.read_long(msgp_guest)? as i32;
 

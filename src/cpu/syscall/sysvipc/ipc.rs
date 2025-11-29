@@ -5,12 +5,8 @@ use crate::Cpu;
 impl Cpu {
     /// Multiplexer syscall that dispatches to individual IPC operations
     pub(crate) fn sys_ipc(&mut self) -> Result<i64> {
-        let call = self.data_regs[1];
-        let first = self.data_regs[2] as i32;
-        let second = self.data_regs[3] as usize;
-        let third = self.data_regs[4] as usize;
-        let ptr = self.data_regs[5] as usize;
-        let fifth = self.data_regs[6] as i64;
+        let (call, first, second, third, ptr, fifth): (u32, i32, usize, usize, usize, i32) =
+            self.get_args();
 
         // IPC call numbers
         const SEMOP: u32 = 1;
