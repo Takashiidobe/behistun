@@ -17,10 +17,7 @@ impl Cpu {
         let tv_sec = i64::from_be_bytes(tv_sec_bytes) as libc::time_t;
         let tv_nsec = self.memory.read_long(ts_addr + 8)? as i64;
 
-        let ts = libc::timespec {
-            tv_sec,
-            tv_nsec,
-        };
+        let ts = libc::timespec { tv_sec, tv_nsec };
         Ok(unsafe { libc::clock_settime(clk_id, &ts) as i64 })
     }
 }

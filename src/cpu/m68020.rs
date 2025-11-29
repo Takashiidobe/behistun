@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
+use super::{M68K_TLS_TCB_SIZE, align_up};
 use anyhow::{Result, anyhow, bail};
-use super::{align_up, M68K_TLS_TCB_SIZE};
 
 use crate::{
     decoder::{
@@ -119,7 +119,11 @@ impl Cpu {
 
     /// Set up the initial stack with argc/argv/envp and auxiliary vector
     /// This can be called both during initialization and for execve
-    pub(super) fn setup_initial_stack(&mut self, args: &[String], elf_info: &ElfInfo) -> Result<()> {
+    pub(super) fn setup_initial_stack(
+        &mut self,
+        args: &[String],
+        elf_info: &ElfInfo,
+    ) -> Result<()> {
         // Find stack segment
         let stack_top = self.stack_base
             + self
@@ -3265,7 +3269,6 @@ impl Cpu {
             self.sr &= !mask;
         }
     }
-
 }
 
 const FLAG_C: u16 = 0x0001;

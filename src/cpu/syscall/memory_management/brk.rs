@@ -1,6 +1,6 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
-use crate::{Cpu};
+use crate::Cpu;
 use crate::cpu::align_up;
 
 impl Cpu {

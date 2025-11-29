@@ -78,7 +78,8 @@ fn parse_args() -> anyhow::Result<(PathBuf, Vec<String>)> {
     }
     let binary_path = PathBuf::from(args.remove(0));
     // Canonicalize the path to get an absolute path (for /proc/self/exe)
-    let canonical_path = binary_path.canonicalize()
+    let canonical_path = binary_path
+        .canonicalize()
         .unwrap_or_else(|_| binary_path.clone());
     // args now contains the arguments to pass to the emulated program
     // Prepend the canonical binary path as argv[0]

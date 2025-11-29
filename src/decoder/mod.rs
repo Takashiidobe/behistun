@@ -1824,7 +1824,7 @@ impl Decoder {
                                 width,
                             }),
                             (0b111, 1) => Ok(InstructionKind::Bfins {
-                                src: dst,  // src is actually a DataReg, reusing dst placeholder
+                                src: dst, // src is actually a DataReg, reusing dst placeholder
                                 dst: mode,
                                 offset,
                                 width,

@@ -2,8 +2,8 @@ use anyhow::{Result, anyhow, bail};
 use goblin::{Object, elf::program_header};
 use std::fs;
 
-use crate::cpu::{ElfInfo, M68K_TLS_TCB_SIZE, align_up};
 use crate::Cpu;
+use crate::cpu::{ElfInfo, M68K_TLS_TCB_SIZE, align_up};
 
 impl Cpu {
     /// execve(filename, argv, envp)

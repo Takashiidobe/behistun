@@ -1,7 +1,8 @@
 pub mod ipc;
-pub mod shmctl;
-pub mod shmat;
-pub mod shmdt;
 pub mod msgctl;
-pub mod msgsnd;
 pub mod msgrcv;
+pub mod msgsnd;
+pub mod semctl;
+pub mod shmat;
+pub mod shmctl;
+pub mod shmdt;

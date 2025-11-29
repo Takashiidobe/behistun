@@ -1,2 +1,2 @@
-pub mod sethostname;
 pub mod setdomainname;
+pub mod sethostname;

@@ -1,8 +1,8 @@
 use super::{
     Abcd, AddrReg, AddressingMode, And, BitFieldParam, BitOp, BitOpImm, BitOpReg, Condition,
     DataDir, DataReg, EffectiveAddress, Exg, ExtMode, ImmOp, Immediate, Instruction,
-    InstructionKind, Movem, Movep, MovepDirection, Or, QuickOp, Register, RightOrLeft, Sbcd,
-    Shift, ShiftCount, ShiftEa, ShiftReg, Size, Sub, Subx, UnaryOp, UspDirection,
+    InstructionKind, Movem, Movep, MovepDirection, Or, QuickOp, Register, RightOrLeft, Sbcd, Shift,
+    ShiftCount, ShiftEa, ShiftReg, Size, Sub, Subx, UnaryOp, UspDirection,
 };
 use crate::decoder::Add;
 use std::fmt;

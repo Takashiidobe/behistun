@@ -47,8 +47,10 @@ impl Cpu {
                 .write_data(oldattr_addr + 4, &(oldattr.mq_maxmsg as i32).to_be_bytes())?;
             self.memory
                 .write_data(oldattr_addr + 8, &(oldattr.mq_msgsize as i32).to_be_bytes())?;
-            self.memory
-                .write_data(oldattr_addr + 12, &(oldattr.mq_curmsgs as i32).to_be_bytes())?;
+            self.memory.write_data(
+                oldattr_addr + 12,
+                &(oldattr.mq_curmsgs as i32).to_be_bytes(),
+            )?;
         }
 
         Ok(Self::libc_to_kernel(result))
