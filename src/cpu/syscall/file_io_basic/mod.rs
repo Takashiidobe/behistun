@@ -1,2 +1,17 @@
 pub mod read;
 pub mod write;
+pub mod pipe;
+pub mod copy_file_range;
+pub mod readv;
+pub mod writev;
+pub mod pread64;
+pub mod pwrite64;
+pub mod preadv;
+pub mod pwritev;
+pub mod sendfile;
+pub mod sendfile64;
+pub mod readahead;
+pub mod sync;
+pub mod fsync;
+pub mod fdatasync;
+pub mod sync_file_range;

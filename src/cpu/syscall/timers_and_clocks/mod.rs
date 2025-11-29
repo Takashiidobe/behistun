@@ -1,1 +1,13 @@
 pub mod time;
+pub mod times;
+pub mod clock_gettime;
+pub mod clock_getres;
+pub mod clock_nanosleep;
+pub mod nanosleep;
+pub mod clock_settime;
+pub mod clock_adjtime;
+pub mod gettimeofday;
+pub mod settimeofday;
+pub mod timerfd_settime;
+pub mod timerfd_gettime;
+pub mod adjtimex;

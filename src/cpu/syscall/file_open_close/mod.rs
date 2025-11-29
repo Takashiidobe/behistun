@@ -1,3 +1,14 @@
 pub mod open;
 pub mod link;
 pub mod rename;
+pub mod symlink;
+pub mod readlink;
+pub mod truncate;
+pub mod openat;
+pub mod openat2;
+pub mod linkat;
+pub mod symlinkat;
+pub mod readlinkat;
+pub mod renameat;
+pub mod renameat2;
+pub mod faccessat;
