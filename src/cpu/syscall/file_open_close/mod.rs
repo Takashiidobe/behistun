@@ -12,3 +12,4 @@ pub mod readlinkat;
 pub mod renameat;
 pub mod renameat2;
 pub mod faccessat;
+pub mod unlinkat;

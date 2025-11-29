@@ -58,12 +58,15 @@ fn to_runlog(out: Output) -> RunLog {
 }
 
 fn source_to_binary(src_path: &Path) -> PathBuf {
+    // Strip extension and replace test-files with test-bins
     // Convert test-csmith/foo.c to test-bins/csmith/foo
-    let stem = src_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("out");
-    PathBuf::from("test-bins/csmith").join(stem)
+    let without_ext = src_path.with_extension("");
+    let bin_path_str = without_ext
+        .to_str()
+        .unwrap()
+        .replace("test-csmith", "test-bins/csmith");
+
+    PathBuf::from(bin_path_str)
 }
 
 fn run_case(path: &Path) -> datatest::Result<()> {
