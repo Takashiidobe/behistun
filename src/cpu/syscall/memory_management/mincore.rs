@@ -10,7 +10,7 @@ impl Cpu {
         let vec_ptr = self.data_regs[3] as usize;
 
         const PAGE_SIZE: usize = 4096;
-        let num_pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+        let num_pages = length.div_ceil(PAGE_SIZE);
 
         // Validate the memory range exists
         if length > 0 {

@@ -3,11 +3,13 @@ mod file_attributes_permissions;
 mod file_io_basic;
 mod file_metadata;
 mod futex_and_sync;
+mod hostname_domain;
 mod kernel_security;
 mod file_open_close;
 mod memory_management;
 mod process_management;
 mod polling_and_events;
+mod resource_limits;
 mod scheduler_and_cpu_affinity;
 mod random;
 mod timers_and_clocks;
@@ -20,7 +22,7 @@ use std::ffi::CString;
 
 use anyhow::{Result, anyhow, bail};
 
-use super::{Cpu, M68K_TLS_TCB_SIZE, TLS_DATA_PAD, align_up};
+use super::{Cpu, M68K_TLS_TCB_SIZE, TLS_DATA_PAD};
 use crate::syscall::m68k_to_x86_64_syscall;
 
 impl Cpu {
@@ -1676,217 +1678,6 @@ impl Cpu {
             });
         }
         Ok(iovecs)
-    }
-
-    /// Helper for syscalls with pattern: syscall(path, arg2, arg3, ...)
-    /// D1 = path pointer, extra_args passed directly
-    fn sys_path1(&self, syscall_num: u32, extra_arg: i64) -> Result<i64> {
-        let path_addr = self.data_regs[1] as usize;
-        let path_cstr = self.guest_cstring(path_addr)?;
-
-        Ok(unsafe { libc::syscall(syscall_num as i64, path_cstr.as_ptr(), extra_arg) })
-    }
-
-    /// brk(addr) - grow/shrink the emulated heap
-    fn sys_brk(&mut self) -> Result<i64> {
-        let requested = self.data_regs[1] as usize;
-        let old_brk = self.brk;
-
-        if requested == 0 {
-            return Ok(old_brk as i64);
-        }
-
-        let mut target = requested;
-        if target < self.brk_base {
-            target = self.brk_base;
-        }
-
-        // Align for internal memory allocation, but store exact value like Linux does
-        let target_aligned = align_up(target, 4096);
-        let old_brk_aligned = align_up(old_brk, 4096);
-
-        let guard: usize = 0x1000;
-        if target_aligned + guard > self.stack_base {
-            return Ok(old_brk as i64);
-        }
-
-        // Only resize the backing segment if we need more pages
-        if target_aligned > old_brk_aligned {
-            let new_len = target_aligned
-                .checked_sub(self.heap_segment_base)
-                .ok_or_else(|| anyhow::anyhow!("brk underflow"))?;
-            self.memory
-                .resize_segment(self.heap_segment_base, new_len)?;
-        }
-
-        // Store and return the exact requested value (like Linux)
-        self.brk = target;
-        Ok(self.brk as i64)
-    }
-
-    /// sethostname(name, len)
-    fn sys_sethostname(&self) -> Result<i64> {
-        let name_addr = self.data_regs[1] as usize;
-        let len = self.data_regs[2] as usize;
-        let host_ptr = self
-            .memory
-            .guest_to_host(name_addr, len)
-            .ok_or_else(|| anyhow!("invalid hostname buffer"))?;
-        Ok(unsafe { libc::sethostname(host_ptr as *const i8, len) as i64 })
-    }
-
-    /// setrlimit(resource, rlim)
-    fn sys_setrlimit(&self) -> Result<i64> {
-        let resource = self.data_regs[1] as i32;
-        let rlim_addr = self.data_regs[2] as usize;
-        // m68k rlimit: two 32-bit values (rlim_cur, rlim_max)
-        let rlim_cur = self.memory.read_long(rlim_addr)? as libc::rlim_t;
-        let rlim_max = self.memory.read_long(rlim_addr + 4)? as libc::rlim_t;
-        let rlim = libc::rlimit { rlim_cur, rlim_max };
-        Ok(unsafe { libc::setrlimit(resource as u32, &rlim) as i64 })
-    }
-
-    /// getrlimit(resource, rlim)
-    fn sys_getrlimit(&mut self) -> Result<i64> {
-        let resource = self.data_regs[1] as i32;
-        let rlim_addr = self.data_regs[2] as usize;
-        let mut rlim: libc::rlimit = unsafe { std::mem::zeroed() };
-        let result = unsafe { libc::getrlimit(resource as u32, &mut rlim) };
-        if result == 0 && rlim_addr != 0 {
-            // m68k rlimit: two 32-bit values (rlim_cur, rlim_max)
-            self.memory
-                .write_data(rlim_addr, &(rlim.rlim_cur as u32).to_be_bytes())?;
-            self.memory
-                .write_data(rlim_addr + 4, &(rlim.rlim_max as u32).to_be_bytes())?;
-        }
-        Ok(result as i64)
-    }
-
-    /// prlimit64(pid, resource, new_limit, old_limit)
-    fn sys_prlimit64(&mut self) -> Result<i64> {
-        let pid = self.data_regs[1] as libc::pid_t;
-        let resource = self.data_regs[2] as i32;
-        let new_limit_addr = self.data_regs[3] as usize;
-        let old_limit_addr = self.data_regs[4] as usize;
-
-        let new_limit_ptr = if new_limit_addr != 0 {
-            // m68k rlimit64: two 64-bit values (rlim_cur, rlim_max)
-            // Each 64-bit value is stored as two 32-bit words (big-endian)
-            let cur_hi = self.memory.read_long(new_limit_addr)? as u64;
-            let cur_lo = self.memory.read_long(new_limit_addr + 4)? as u64;
-            let max_hi = self.memory.read_long(new_limit_addr + 8)? as u64;
-            let max_lo = self.memory.read_long(new_limit_addr + 12)? as u64;
-            let rlim_cur = (cur_hi << 32) | cur_lo;
-            let rlim_max = (max_hi << 32) | max_lo;
-            Some(libc::rlimit64 { rlim_cur, rlim_max })
-        } else {
-            None
-        };
-
-        let mut old_limit: libc::rlimit64 = unsafe { std::mem::zeroed() };
-
-        let result = unsafe {
-            libc::prlimit64(
-                pid,
-                resource as u32,
-                new_limit_ptr
-                    .as_ref()
-                    .map(|l| l as *const _)
-                    .unwrap_or(std::ptr::null()),
-                if old_limit_addr != 0 {
-                    &mut old_limit
-                } else {
-                    std::ptr::null_mut()
-                },
-            )
-        };
-
-        if result == 0 && old_limit_addr != 0 {
-            // Write old_limit back to guest memory
-            let cur_hi = (old_limit.rlim_cur >> 32) as u32;
-            let cur_lo = old_limit.rlim_cur as u32;
-            let max_hi = (old_limit.rlim_max >> 32) as u32;
-            let max_lo = old_limit.rlim_max as u32;
-            self.memory
-                .write_data(old_limit_addr, &cur_hi.to_be_bytes())?;
-            self.memory
-                .write_data(old_limit_addr + 4, &cur_lo.to_be_bytes())?;
-            self.memory
-                .write_data(old_limit_addr + 8, &max_hi.to_be_bytes())?;
-            self.memory
-                .write_data(old_limit_addr + 12, &max_lo.to_be_bytes())?;
-        }
-
-        Ok(result as i64)
-    }
-
-    /// getrusage(who, usage)
-    fn sys_getrusage(&mut self) -> Result<i64> {
-        let who = self.data_regs[1] as i32;
-        let usage_addr = self.data_regs[2] as usize;
-        let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
-        let result = unsafe { libc::getrusage(who, &mut usage) };
-        if result == 0 && usage_addr != 0 {
-            // Write rusage struct - m68k uclibc uses 64-bit time_t
-            self.memory
-                .write_data(usage_addr, &(usage.ru_utime.tv_sec as i64).to_be_bytes())?;
-            self.memory.write_data(
-                usage_addr + 8,
-                &(usage.ru_utime.tv_usec as u32).to_be_bytes(),
-            )?;
-            self.memory.write_data(
-                usage_addr + 12,
-                &(usage.ru_stime.tv_sec as i64).to_be_bytes(),
-            )?;
-            self.memory.write_data(
-                usage_addr + 20,
-                &(usage.ru_stime.tv_usec as u32).to_be_bytes(),
-            )?;
-        }
-        Ok(result as i64)
-    }
-
-    fn sys_pkey_mprotect(&self) -> Result<i64> {
-        let addr = self.data_regs[1] as usize;
-        let len = self.data_regs[2] as usize;
-        let _prot = self.data_regs[3] as i32;
-        let _pkey = self.data_regs[4] as i32;
-
-        // Validate that the memory range exists
-        if len > 0 {
-            let _ = self
-                .memory
-                .guest_to_host(addr, 1)
-                .ok_or_else(|| anyhow!("pkey_mprotect: invalid address {:#x}", addr))?;
-            if len > 1 {
-                let _ = self
-                    .memory
-                    .guest_to_host(addr + len - 1, 1)
-                    .ok_or_else(|| anyhow!("pkey_mprotect: invalid address range"))?;
-            }
-        }
-
-        // Return success - guest memory protection is managed by the interpreter
-        // m68k doesn't have hardware protection keys, so this is a simulated no-op
-        Ok(0)
-    }
-
-    fn sys_pkey_alloc(&self) -> Result<i64> {
-        let _flags = self.data_regs[1];
-        let _access_rights = self.data_regs[2];
-
-        // Simulate pkey allocation by returning a valid pkey ID
-        // m68k doesn't have hardware protection keys, but we return success
-        // to allow guest programs to call this without errors
-        // Return 1 (a valid pkey number - 0 is reserved for default key)
-        Ok(1)
-    }
-
-    fn sys_pkey_free(&self) -> Result<i64> {
-        let _pkey = self.data_regs[1] as i32;
-
-        // Always succeed - simulated pkey management
-        Ok(0)
     }
 
     fn alloc_anonymous_mmap(&mut self, req_addr: usize, length: usize, prot: i32) -> Result<usize> {
