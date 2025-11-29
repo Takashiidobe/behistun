@@ -9,6 +9,11 @@ use crate::cpu::ElfInfo;
 use crate::syscall::m68k_to_x86_64_syscall;
 
 impl Cpu {
+    /// Read syscall arguments from D1..D6 as a typed tuple.
+    pub(super) fn get_args<T: FromRegs>(&self) -> T {
+        T::from_regs(&self.data_regs[1..])
+    }
+
     pub(super) fn handle_syscall(&mut self) -> Result<()> {
         let m68k_num = self.data_regs[0];
         let x86_num = m68k_to_x86_64_syscall(m68k_num).unwrap_or_default();
@@ -6307,11 +6312,8 @@ impl Cpu {
 
     /// recvfrom(sockfd, buf, len, flags, src_addr, addrlen)
     fn sys_recvfrom(&mut self) -> Result<i64> {
-        let sockfd = self.data_regs[1] as i32;
-        let buf_ptr = self.data_regs[2] as usize;
-        let len = self.data_regs[3] as usize;
-        let flags = self.data_regs[4] as i32;
-        let src_addr = self.data_regs[5] as usize;
+        let (sockfd, buf_ptr, len, flags, src_addr): (i32, usize, usize, i32, usize) =
+            self.get_args();
 
         let host_buf = self
             .memory
@@ -6344,9 +6346,7 @@ impl Cpu {
     /// sendmsg(sockfd, msg, flags)
     /// Sends a message on a socket using a msghdr structure
     fn sys_sendmsg(&mut self) -> Result<i64> {
-        let sockfd = self.data_regs[1] as i32;
-        let msg_addr = self.data_regs[2] as usize;
-        let flags = self.data_regs[3] as i32;
+        let (sockfd, msg_addr, flags): (i32, usize, i32) = self.get_args();
 
         // Read m68k msghdr structure (28 bytes)
         // struct msghdr {
@@ -6410,9 +6410,7 @@ impl Cpu {
     /// recvmsg(sockfd, msg, flags)
     /// Receives a message from a socket using a msghdr structure
     fn sys_recvmsg(&mut self) -> Result<i64> {
-        let sockfd = self.data_regs[1] as i32;
-        let msg_addr = self.data_regs[2] as usize;
-        let flags = self.data_regs[3] as i32;
+        let (sockfd, msg_addr, flags): (i32, usize, i32) = self.get_args();
 
         // Read m68k msghdr structure (28 bytes)
         let msg_name = self.memory.read_long(msg_addr)? as usize;
@@ -6575,4 +6573,54 @@ impl Cpu {
             .map(|p| p as *mut libc::c_void)
             .ok_or_else(|| anyhow!("invalid guest buffer {addr:#x} (len {len})"))
     }
+}
+
+/// Convert a single register value into a syscall argument type.
+pub(super) trait FromReg: Sized {
+    fn from_reg(v: u32) -> Self;
+}
+
+impl FromReg for u32 {
+    fn from_reg(v: u32) -> Self {
+        v
+    }
+}
+
+impl FromReg for i32 {
+    fn from_reg(v: u32) -> Self {
+        v as i32
+    }
+}
+
+impl FromReg for usize {
+    fn from_reg(v: u32) -> Self {
+        v as usize
+    }
+}
+
+/// Convert slices of register values (starting at D1) into tuples of arguments.
+pub(super) trait FromRegs: Sized {
+    fn from_regs(regs: &[u32]) -> Self;
+}
+
+macro_rules! impl_from_regs {
+    ($( $($ty:ident),+ );+ $(;)?) => {
+        $(
+            impl<$($ty: FromReg),+> FromRegs for ($($ty,)+) {
+                fn from_regs(regs: &[u32]) -> Self {
+                    let mut iter = regs.iter().copied();
+                    ( $({ let v = iter.next().unwrap_or(0); $ty::from_reg(v) },)+ )
+                }
+            }
+        )+
+    };
+}
+
+impl_from_regs! {
+    A;
+    A, B;
+    A, B, C;
+    A, B, C, D;
+    A, B, C, D, E;
+    A, B, C, D, E, F;
 }
