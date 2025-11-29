@@ -11,3 +11,5 @@ pub mod settimeofday;
 pub mod timerfd_settime;
 pub mod timerfd_gettime;
 pub mod adjtimex;
+pub mod getitimer;
+pub mod setitimer;
