@@ -6,7 +6,7 @@ use crate::cpu::align_up;
 impl Cpu {
     /// brk(addr) - grow/shrink the emulated heap
     pub(crate) fn sys_brk(&mut self) -> Result<i64> {
-        let requested = self.data_regs[1] as usize;
+        let (requested,) = self.get_args();
         let old_brk = self.brk;
 
         if requested == 0 {

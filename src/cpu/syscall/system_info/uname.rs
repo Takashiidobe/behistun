@@ -8,43 +8,30 @@ impl Cpu {
         let mut uts: libc::utsname = unsafe { std::mem::zeroed() };
         let result = unsafe { libc::uname(&mut uts) };
         if result == 0 {
-            let field_size = 65usize;
-            self.memory.write_data(
-                buf_addr,
-                &uts.sysname[..field_size]
-                    .iter()
-                    .map(|&c| c as u8)
-                    .collect::<Vec<_>>(),
-            )?;
-            self.memory.write_data(
-                buf_addr + field_size,
-                &uts.nodename[..field_size]
-                    .iter()
-                    .map(|&c| c as u8)
-                    .collect::<Vec<_>>(),
-            )?;
-            self.memory.write_data(
-                buf_addr + field_size * 2,
-                &uts.release[..field_size]
-                    .iter()
-                    .map(|&c| c as u8)
-                    .collect::<Vec<_>>(),
-            )?;
-            self.memory.write_data(
-                buf_addr + field_size * 3,
-                &uts.version[..field_size]
-                    .iter()
-                    .map(|&c| c as u8)
-                    .collect::<Vec<_>>(),
-            )?;
-            self.memory.write_data(
-                buf_addr + field_size * 4,
-                &uts.machine[..field_size]
-                    .iter()
-                    .map(|&c| c as u8)
-                    .collect::<Vec<_>>(),
-            )?;
+            self.write_uname_data(&mut uts, buf_addr)?
         }
         Ok(result as i64)
     }
+
+    fn write_uname_data(&mut self, uts: &mut libc::utsname, buf_addr: usize) -> Result<()> {
+        let field_size = 65;
+        self.memory.write_data(buf_addr, &write_uts(&uts.sysname))?;
+        self.memory
+            .write_data(buf_addr + field_size, &write_uts(&uts.nodename))?;
+        self.memory.write_data(
+            buf_addr + field_size * 2,
+            &write_uts(&uts.release[..field_size]),
+        )?;
+        self.memory.write_data(
+            buf_addr + field_size * 3,
+            &write_uts(&uts.version[..field_size]),
+        )?;
+        self.memory
+            .write_data(buf_addr + field_size * 4, &write_uts(&uts.machine))?;
+        Ok(())
+    }
+}
+
+fn write_uts(data: &[i8]) -> Vec<u8> {
+    data.iter().map(|&c| c as u8).collect()
 }

@@ -6,11 +6,8 @@ impl Cpu {
     /// futex(uaddr, op, val, timeout, uaddr2, val3)
     /// Fast userspace mutex - translates guest pointers to host
     pub(crate) fn sys_futex(&mut self) -> Result<i64> {
-        let uaddr_guest = self.data_regs[1] as usize;
-        let op = self.data_regs[2] as i32;
-        let val = self.data_regs[3] as i32;
-        let timeout_guest = self.data_regs[4] as usize;
-        let uaddr2_guest = self.data_regs[5] as usize;
+        let (uaddr_guest, op, val, timeout_guest, uaddr2_guest): (usize, i32, i32, usize, usize) =
+            self.get_args();
 
         // Get 6th argument from stack (m68k ABI passes 6th arg on stack)
         let sp = self.addr_regs[7] as usize;
