@@ -1,4 +1,5 @@
 pub mod open;
+pub mod memfd_create;
 pub mod link;
 pub mod rename;
 pub mod symlink;

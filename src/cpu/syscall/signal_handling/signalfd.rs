@@ -1,0 +1,28 @@
+use anyhow::{anyhow, Result};
+
+use crate::Cpu;
+
+impl Cpu {
+    pub(crate) fn sys_signalfd(&self) -> Result<i64> {
+        let fd = self.data_regs[1] as i32;
+        let mask_addr = self.data_regs[2] as usize;
+        let flags = self.data_regs[3] as i32;
+
+        // Mask is a sigset_t, which is typically 128 bytes on m68k
+        let mask_size = std::mem::size_of::<libc::sigset_t>();
+        let mask_ptr = self
+            .memory
+            .guest_to_host(mask_addr, mask_size)
+            .ok_or_else(|| anyhow!("invalid sigset_t buffer"))?;
+
+        let result = unsafe {
+            libc::syscall(
+                libc::SYS_signalfd,
+                fd,
+                mask_ptr as *const libc::sigset_t,
+                flags,
+            )
+        };
+        Ok(Self::libc_to_kernel(result))
+    }
+}
