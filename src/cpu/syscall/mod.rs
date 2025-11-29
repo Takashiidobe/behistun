@@ -9,6 +9,7 @@ mod inotify_fanotify;
 mod kernel_security;
 mod memory_management;
 mod polling_and_events;
+mod posix_message_queues;
 mod process_management;
 mod random;
 mod resource_limits;
@@ -1935,409 +1936,6 @@ impl Cpu {
         Ok((value_ptr, size, flags))
     }
 
-    /// shmat(shmid, shmaddr, shmflg)
-    fn sys_shmat(&mut self) -> Result<i64> {
-        let shmid = self.data_regs[1] as i32;
-        let shmaddr_hint = self.data_regs[2] as usize;
-        let shmflg = self.data_regs[3] as i32;
-
-        // Call host shmat to attach the shared memory
-        let host_ptr = unsafe { libc::shmat(shmid, std::ptr::null(), shmflg) as *mut u8 };
-
-        if host_ptr == libc::MAP_FAILED as *mut u8 {
-            let errno = unsafe { *libc::__errno_location() };
-            return Ok(Self::libc_to_kernel(-errno as i64));
-        }
-
-        // Get the size of the shared memory segment
-        let mut shmid_ds: libc::shmid_ds = unsafe { std::mem::zeroed() };
-        let stat_result = unsafe { libc::shmctl(shmid, libc::IPC_STAT, &mut shmid_ds) };
-        if stat_result < 0 {
-            // Failed to get size - detach and return error
-            unsafe { libc::shmdt(host_ptr as *const libc::c_void) };
-            let errno = unsafe { *libc::__errno_location() };
-            return Ok(Self::libc_to_kernel(-errno as i64));
-        }
-        let size = shmid_ds.shm_segsz;
-
-        // Find a guest address for this mapping
-        let guest_addr = if shmaddr_hint == 0 {
-            // Find a free range in guest address space
-            self.memory
-                .find_free_range(size)
-                .ok_or_else(|| anyhow!("no free guest memory for shmat"))?
-        } else {
-            // Use the hint address (TODO: handle SHM_RND flag for rounding)
-            shmaddr_hint
-        };
-
-        // Create a foreign segment that wraps the host shmat memory
-        let flags = if shmflg & libc::SHM_RDONLY != 0 {
-            goblin::elf::program_header::PF_R
-        } else {
-            goblin::elf::program_header::PF_R | goblin::elf::program_header::PF_W
-        };
-
-        let segment = crate::memory::MemorySegment {
-            vaddr: guest_addr,
-            data: crate::memory::MemoryData::Foreign {
-                ptr: host_ptr,
-                len: size,
-                shmid,
-            },
-            flags,
-            align: 4096,
-        };
-
-        // Add this segment to the guest's memory map
-        self.memory.add_segment(segment);
-
-        Ok(guest_addr as i64)
-    }
-
-    /// shmdt(shmaddr)
-    fn sys_shmdt(&mut self) -> Result<i64> {
-        let guest_addr = self.data_regs[1] as usize;
-
-        // Find the segment at this address
-        let segment_idx = self
-            .memory
-            .find_segment_index(guest_addr)
-            .ok_or_else(|| anyhow!("no shared memory segment at address {:#x}", guest_addr))?;
-
-        // Verify it's a foreign segment (from shmat)
-        // Note: The Drop implementation for MemoryData will call shmdt automatically
-        // when we remove the segment, so we just need to remove it
-        self.memory.remove_segment(segment_idx);
-
-        Ok(0)
-    }
-
-    /// msgctl(msqid, cmd, buf)
-    fn sys_msgctl(&mut self) -> Result<i64> {
-        let msqid = self.data_regs[1] as i32;
-        let cmd = self.data_regs[2] as i32;
-        let buf_ptr = self.data_regs[3] as usize;
-
-        // For IPC_RMID, we don't need the buffer
-        if cmd == libc::IPC_RMID || buf_ptr == 0 {
-            let res =
-                unsafe { libc::syscall(71, msqid, cmd, std::ptr::null_mut::<libc::c_void>()) };
-            return Ok(Self::libc_to_kernel(res as i64));
-        }
-
-        // For IPC_STAT and IPC_SET, pass through the buffer
-        // Similar to shmctl, we'll trust that the structure layout is compatible
-        let buf_host = self
-            .memory
-            .guest_to_host_mut(buf_ptr, 128) // msqid_ds is similar size
-            .ok_or_else(|| anyhow!("invalid msqid_ds buffer"))?;
-
-        let res = unsafe { libc::syscall(71, msqid, cmd, buf_host) };
-        Ok(Self::libc_to_kernel(res as i64))
-    }
-
-    /// msgsnd(msqid, msgp, msgsz, msgflg)
-    /// Message buffer format:
-    ///   m68k: struct { i32 mtype; char mtext[]; }
-    ///   x86_64: struct { i64 mtype; char mtext[]; }
-    fn sys_msgsnd(&mut self) -> Result<i64> {
-        let msqid = self.data_regs[1] as i32;
-        let msgp_guest = self.data_regs[2] as usize;
-        let msgsz = self.data_regs[3] as usize;
-        let msgflg = self.data_regs[4] as i32;
-
-        // Read the m68k message buffer (4-byte mtype + message data)
-        let mtype_m68k = self.memory.read_long(msgp_guest)? as i32;
-
-        // Create host buffer with 8-byte mtype
-        let total_size = 8 + msgsz; // 8 bytes for mtype (i64) + message data
-        let mut host_buf = vec![0u8; total_size];
-
-        // Write mtype as 8-byte value
-        host_buf[0..8].copy_from_slice(&(mtype_m68k as i64).to_ne_bytes());
-
-        // Copy message data (skip 4-byte m68k mtype, copy msgsz bytes)
-        if msgsz > 0 {
-            let mtext_guest = msgp_guest + 4;
-            let mtext_data = self
-                .memory
-                .guest_to_host(mtext_guest, msgsz)
-                .ok_or_else(|| anyhow!("invalid message data"))?;
-            host_buf[8..].copy_from_slice(unsafe { std::slice::from_raw_parts(mtext_data, msgsz) });
-        }
-
-        let res = unsafe { libc::syscall(69, msqid, host_buf.as_ptr(), msgsz, msgflg) };
-        Ok(Self::libc_to_kernel(res as i64))
-    }
-
-    /// msgrcv(msqid, msgp, msgsz, msgtyp, msgflg)
-    fn sys_msgrcv(&mut self) -> Result<i64> {
-        let msqid = self.data_regs[1] as i32;
-        let msgp_guest = self.data_regs[2] as usize;
-        let msgsz = self.data_regs[3] as usize;
-        let msgtyp = self.data_regs[4] as i64;
-        let msgflg = self.data_regs[5] as i32;
-
-        // Create host buffer with 8-byte mtype
-        let total_size = 8 + msgsz;
-        let mut host_buf = vec![0u8; total_size];
-
-        let res = unsafe { libc::syscall(70, msqid, host_buf.as_mut_ptr(), msgsz, msgtyp, msgflg) };
-
-        if res < 0 {
-            return Ok(Self::libc_to_kernel(res as i64));
-        }
-
-        // Copy the received message back to guest memory
-        // Convert 8-byte mtype to 4-byte for m68k
-        let mtype_host = i64::from_ne_bytes(host_buf[0..8].try_into().unwrap());
-        self.memory
-            .write_data(msgp_guest, &(mtype_host as i32).to_be_bytes())?;
-
-        // Copy message data
-        if res > 0 {
-            let mtext_guest = msgp_guest + 4;
-            let mtext_host = self
-                .memory
-                .guest_to_host_mut(mtext_guest, res as usize)
-                .ok_or_else(|| anyhow!("invalid message data buffer"))?;
-            unsafe {
-                std::ptr::copy_nonoverlapping(host_buf[8..].as_ptr(), mtext_host, res as usize);
-            }
-        }
-
-        Ok(res as i64)
-    }
-
-    /// mq_unlink(name) - Remove a message queue
-    fn sys_mq_unlink(&self) -> Result<i64> {
-        let name_addr = self.data_regs[1] as usize;
-        let name_cstr = self.guest_cstring(name_addr)?;
-
-        let result = unsafe { libc::syscall(241, name_cstr.as_ptr()) as i64 };
-        Ok(Self::libc_to_kernel(result))
-    }
-
-    /// mq_open(name, oflag, mode, attr) - Open/create a message queue
-    /// Variadic syscall: takes 2 or 4 arguments depending on oflag
-    fn sys_mq_open(&self) -> Result<i64> {
-        let name_addr = self.data_regs[1] as usize;
-        let oflag = self.data_regs[2] as i32;
-        let mode = self.data_regs[3]; // Only used if O_CREAT is set
-        let attr_addr = self.data_regs[4] as usize; // Only used if O_CREAT is set
-
-        let name_cstr = self.guest_cstring(name_addr)?;
-
-        // Check if O_CREAT is set (0x40 = O_CREAT)
-        let result = if (oflag & 0x40) != 0 {
-            // Mode and attr are provided
-            let attr_ptr = if attr_addr == 0 {
-                std::ptr::null::<libc::mq_attr>()
-            } else {
-                // Read struct mq_attr from guest memory
-                let mq_flags = self.memory.read_long(attr_addr)? as i32 as i64;
-                let mq_maxmsg = self.memory.read_long(attr_addr + 4)? as i32 as i64;
-                let mq_msgsize = self.memory.read_long(attr_addr + 8)? as i32 as i64;
-                let mq_curmsgs = self.memory.read_long(attr_addr + 12)? as i32 as i64;
-
-                let mut attr: libc::mq_attr = unsafe { std::mem::zeroed() };
-                attr.mq_flags = mq_flags;
-                attr.mq_maxmsg = mq_maxmsg;
-                attr.mq_msgsize = mq_msgsize;
-                attr.mq_curmsgs = mq_curmsgs;
-
-                Box::leak(Box::new(attr)) as *const libc::mq_attr
-            };
-
-            let res =
-                unsafe { libc::syscall(240, name_cstr.as_ptr(), oflag, mode, attr_ptr) as i64 };
-
-            // Clean up leaked attr if allocated
-            if !attr_ptr.is_null() {
-                unsafe {
-                    let _ = Box::from_raw(attr_ptr as *mut libc::mq_attr);
-                }
-            }
-
-            res
-        } else {
-            // Simple open without mode/attr
-            unsafe { libc::syscall(240, name_cstr.as_ptr(), oflag) as i64 }
-        };
-
-        Ok(Self::libc_to_kernel(result))
-    }
-
-    /// mq_getsetattr(mqdes, newattr, oldattr) - Get/set message queue attributes
-    /// struct mq_attr on m68k: 4 longs × 4 bytes = 16 bytes
-    /// struct mq_attr on x86_64: 4 longs × 8 bytes = 32 bytes
-    fn sys_mq_getsetattr(&mut self) -> Result<i64> {
-        let mqdes = self.data_regs[1] as i32;
-        let newattr_addr = self.data_regs[2] as usize;
-        let oldattr_addr = self.data_regs[3] as usize;
-
-        // Read newattr from guest memory if provided
-        let newattr_ptr = if newattr_addr == 0 {
-            std::ptr::null::<libc::mq_attr>()
-        } else {
-            // Read 4 longs (4 bytes each on m68k)
-            let mq_flags = self.memory.read_long(newattr_addr)? as i32 as i64;
-            let mq_maxmsg = self.memory.read_long(newattr_addr + 4)? as i32 as i64;
-            let mq_msgsize = self.memory.read_long(newattr_addr + 8)? as i32 as i64;
-            let mq_curmsgs = self.memory.read_long(newattr_addr + 12)? as i32 as i64;
-
-            // Build host mq_attr
-            let mut newattr: libc::mq_attr = unsafe { std::mem::zeroed() };
-            newattr.mq_flags = mq_flags;
-            newattr.mq_maxmsg = mq_maxmsg;
-            newattr.mq_msgsize = mq_msgsize;
-            newattr.mq_curmsgs = mq_curmsgs;
-
-            // Store in a temporary location (need to keep it alive for syscall)
-            // We'll use a local variable and take its address
-            Box::leak(Box::new(newattr)) as *const libc::mq_attr
-        };
-
-        // Prepare oldattr buffer if requested
-        let mut oldattr: libc::mq_attr = unsafe { std::mem::zeroed() };
-        let oldattr_ptr = if oldattr_addr == 0 {
-            std::ptr::null_mut::<libc::mq_attr>()
-        } else {
-            &mut oldattr as *mut libc::mq_attr
-        };
-
-        // Call mq_getsetattr (x86_64 syscall 245)
-        let result = unsafe { libc::syscall(245, mqdes, newattr_ptr, oldattr_ptr) as i64 };
-
-        // Clean up leaked newattr if allocated
-        if !newattr_ptr.is_null() {
-            unsafe {
-                let _ = Box::from_raw(newattr_ptr as *mut libc::mq_attr);
-            }
-        }
-
-        // Write oldattr back to guest memory if requested
-        if result >= 0 && oldattr_addr != 0 {
-            self.memory
-                .write_data(oldattr_addr, &(oldattr.mq_flags as i32).to_be_bytes())?;
-            self.memory
-                .write_data(oldattr_addr + 4, &(oldattr.mq_maxmsg as i32).to_be_bytes())?;
-            self.memory
-                .write_data(oldattr_addr + 8, &(oldattr.mq_msgsize as i32).to_be_bytes())?;
-            self.memory.write_data(
-                oldattr_addr + 12,
-                &(oldattr.mq_curmsgs as i32).to_be_bytes(),
-            )?;
-        }
-
-        Ok(Self::libc_to_kernel(result))
-    }
-
-    /// mq_timedsend(mqdes, msg_ptr, msg_len, msg_prio, abs_timeout) - Send message with timeout
-    fn sys_mq_timedsend(&self) -> Result<i64> {
-        let mqdes = self.data_regs[1] as i32;
-        let msg_ptr_guest = self.data_regs[2] as usize;
-        let msg_len = self.data_regs[3] as usize;
-        let msg_prio = self.data_regs[4];
-        let timeout_addr = self.data_regs[5] as usize;
-
-        // Translate message buffer pointer
-        let msg_ptr_host = if msg_len > 0 {
-            self.memory
-                .guest_to_host(msg_ptr_guest, msg_len)
-                .ok_or_else(|| anyhow!("mq_timedsend: invalid message buffer"))?
-        } else {
-            std::ptr::null()
-        };
-
-        // Read timeout if provided (m68k uclibc uses 64-bit time_t)
-        let timeout_ptr = if timeout_addr == 0 {
-            std::ptr::null::<libc::timespec>()
-        } else {
-            // tv_sec: 8 bytes (big-endian i64)
-            let tv_sec_bytes: [u8; 8] = self.memory.read_data(timeout_addr, 8)?.try_into().unwrap();
-            let tv_sec = i64::from_be_bytes(tv_sec_bytes);
-
-            // tv_nsec: 4 bytes (big-endian i32)
-            let tv_nsec = self.memory.read_long(timeout_addr + 8)? as i64;
-
-            let timeout = libc::timespec { tv_sec, tv_nsec };
-            Box::leak(Box::new(timeout)) as *const libc::timespec
-        };
-
-        let result =
-            unsafe { libc::syscall(242, mqdes, msg_ptr_host, msg_len, msg_prio, timeout_ptr) };
-
-        // Clean up leaked timeout if allocated
-        if !timeout_ptr.is_null() {
-            unsafe {
-                let _ = Box::from_raw(timeout_ptr as *mut libc::timespec);
-            }
-        }
-
-        Ok(Self::libc_to_kernel(result as i64))
-    }
-
-    /// mq_timedreceive(mqdes, msg_ptr, msg_len, msg_prio, abs_timeout) - Receive message with timeout
-    fn sys_mq_timedreceive(&mut self) -> Result<i64> {
-        let mqdes = self.data_regs[1] as i32;
-        let msg_ptr_guest = self.data_regs[2] as usize;
-        let msg_len = self.data_regs[3] as usize;
-        let msg_prio_addr = self.data_regs[4] as usize;
-        let timeout_addr = self.data_regs[5] as usize;
-
-        // Translate message buffer pointer
-        let msg_ptr_host = if msg_len > 0 {
-            self.memory
-                .guest_to_host_mut(msg_ptr_guest, msg_len)
-                .ok_or_else(|| anyhow!("mq_timedreceive: invalid message buffer"))?
-        } else {
-            std::ptr::null_mut()
-        };
-
-        // Read timeout if provided (m68k uclibc uses 64-bit time_t)
-        let timeout_ptr = if timeout_addr == 0 {
-            std::ptr::null::<libc::timespec>()
-        } else {
-            // tv_sec: 8 bytes (big-endian i64)
-            let tv_sec_bytes: [u8; 8] = self.memory.read_data(timeout_addr, 8)?.try_into().unwrap();
-            let tv_sec = i64::from_be_bytes(tv_sec_bytes);
-
-            // tv_nsec: 4 bytes (big-endian i32)
-            let tv_nsec = self.memory.read_long(timeout_addr + 8)? as i64;
-
-            let timeout = libc::timespec { tv_sec, tv_nsec };
-            Box::leak(Box::new(timeout)) as *const libc::timespec
-        };
-
-        // Prepare msg_prio buffer if requested
-        let mut msg_prio: u32 = 0;
-        let msg_prio_ptr = if msg_prio_addr == 0 {
-            std::ptr::null_mut::<u32>()
-        } else {
-            &mut msg_prio as *mut u32
-        };
-
-        let result =
-            unsafe { libc::syscall(243, mqdes, msg_ptr_host, msg_len, msg_prio_ptr, timeout_ptr) };
-
-        // Clean up leaked timeout if allocated
-        if !timeout_ptr.is_null() {
-            unsafe {
-                let _ = Box::from_raw(timeout_ptr as *mut libc::timespec);
-            }
-        }
-
-        // Write msg_prio back to guest memory if requested
-        if result >= 0 && msg_prio_addr != 0 {
-            self.memory
-                .write_data(msg_prio_addr, &msg_prio.to_be_bytes())?;
-        }
-
-        Ok(Self::libc_to_kernel(result as i64))
-    }
-
     /// semctl(semid, semnum, cmd, arg)
     /// arg is a union semun which can be:
     ///   - int val (for SETVAL)
@@ -3474,23 +3072,18 @@ impl Cpu {
 
     /// bind/connect(sockfd, addr, addrlen) - addr is pointer
     fn sys_socket_addr(&self, syscall_num: u32) -> Result<i64> {
-        let sockfd = self.data_regs[1] as i32;
-        let addr_ptr = self.data_regs[2] as usize;
-        let addrlen = self.data_regs[3];
+        let (sockfd, addr_ptr, addrlen): (i32, usize, usize) = self.get_args();
 
         let host_addr = self
             .memory
-            .guest_to_host(addr_ptr, addrlen as usize)
+            .guest_to_host(addr_ptr, addrlen)
             .ok_or_else(|| anyhow!("invalid sockaddr"))?;
         Ok(unsafe { libc::syscall(syscall_num as i64, sockfd, host_addr, addrlen) })
     }
 
     /// accept4(sockfd, addr, addrlen, flags)
     fn sys_accept4(&mut self) -> Result<i64> {
-        let sockfd = self.data_regs[1] as i32;
-        let addr_ptr = self.data_regs[2] as usize;
-        let addrlen_ptr = self.data_regs[3] as usize;
-        let flags = self.data_regs[4] as i32;
+        let (sockfd, addr_ptr, addrlen_ptr, flags): (i32, usize, usize, i32) = self.get_args();
 
         if addr_ptr == 0 {
             return Ok(unsafe {
@@ -3604,14 +3197,15 @@ impl Cpu {
 
     /// sendto(sockfd, buf, len, flags, dest_addr, addrlen)
     fn sys_sendto(&self) -> Result<i64> {
-        let sockfd = self.data_regs[1] as i32;
-        let buf_ptr = self.data_regs[2] as usize;
-        let len = self.data_regs[3] as usize;
-        let flags = self.data_regs[4] as i32;
         let dest_addr = self.data_regs[5] as usize;
-        // addrlen would be in D6 but we only have D1-D5, use stack or fixed size
-        // For now, assume addrlen is after dest_addr in struct or use 16 (sizeof sockaddr_in)
-        let addrlen: libc::socklen_t = 16;
+        let (sockfd, buf_ptr, len, flags, _, addrlen): (
+            i32,
+            usize,
+            usize,
+            i32,
+            usize,
+            libc::socklen_t,
+        ) = self.get_args();
 
         let host_buf = self
             .memory
