@@ -1,4 +1,4 @@
-mod exit;
+mod process_management;
 
 use std::ffi::CString;
 
